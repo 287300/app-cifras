@@ -573,6 +573,12 @@ export function editScreen(id: string): HTMLElement {
   notes.value = song.notes
   const body = h('textarea', { rows: 16 }) as HTMLTextAreaElement
   body.value = song.body
+  // colar por cima de um esqueleto: se o tom ainda não foi definido, detecta da colagem
+  body.addEventListener('input', () => {
+    if (tom.value) return
+    const parsed = parseCifra(body.value)
+    if (parsed.tom && parseKey(parsed.tom)) tom.value = parsed.tom
+  })
 
   content.append(
     h('div', { className: 'field' }, h('label', null, 'Nome'), title),
