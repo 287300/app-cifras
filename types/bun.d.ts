@@ -24,6 +24,32 @@ declare module 'bun:test' {
   export function expect(value: unknown): Matchers
 }
 
+// Mínimos de Node usados apenas em scripts/build.ts (o Bun fornece em runtime)
+declare module 'node:crypto' {
+  export function createHash(algo: string): {
+    update(data: string | Uint8Array): ReturnType<typeof createHash>
+    digest(encoding: 'hex'): string
+  }
+}
+declare module 'node:fs' {
+  export function readFileSync(path: string): Uint8Array
+  export function writeFileSync(path: string, data: string): void
+  export function mkdirSync(path: string, opts?: { recursive?: boolean }): void
+  export function rmSync(path: string, opts?: { recursive?: boolean; force?: boolean }): void
+  export function cpSync(src: string, dest: string, opts?: { recursive?: boolean }): void
+  export function readdirSync(path: string): string[]
+  export function statSync(path: string): { isDirectory(): boolean }
+  export function existsSync(path: string): boolean
+}
+declare module 'node:path' {
+  export function join(...parts: string[]): string
+}
+declare const process: { exit(code?: number): never }
+
+interface ImportMeta {
+  dir: string
+}
+
 declare namespace Bun {
   function build(config: {
     entrypoints: string[]
