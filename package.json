@@ -1,0 +1,13 @@
+{
+  "name": "app-cifras",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Cifras para shows: setlist, leitura de palco, transposição e acordes (violão e teclado). PWA offline para iPad.",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "bun run scripts/build.ts",
+    "serve": "python3 -m http.server 8080 -d docs"
+  }
+}
