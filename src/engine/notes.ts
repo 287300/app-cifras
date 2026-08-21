@@ -45,7 +45,7 @@ export function parseKey(key: string): { pc: number; minor: boolean } | null {
 /** Transpõe um tom ("G", "Em") por semitons, com a grafia usual. */
 export function transposeKey(key: string, semitones: number): string {
   const k = parseKey(key)
-  if (!key || !k) return key
+  if () return key
   const pc = mod12(k.pc + semitones)
   return k.minor ? MINOR_SPELL[pc]! : MAJOR_SPELL[pc]!
 }
