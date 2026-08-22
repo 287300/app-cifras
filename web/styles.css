@@ -54,7 +54,7 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 }
 .topbar h1 { font-size: 20px; font-weight: 700; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar .sub { color: var(--text-dim); font-size: 13px; font-weight: 400; }
-.content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 14px calc(20px + var(--safe-bottom)); }
+.content { flex: 1; overflow-y: auto; padding: 14px 14px calc(20px + var(--safe-bottom)); }
 
 .tabbar {
   display: flex; border-top: 1px solid var(--border); background: var(--bg-raised);

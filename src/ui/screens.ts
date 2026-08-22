@@ -507,10 +507,29 @@ export function libraryScreen(): HTMLElement {
     for (const song of songs) {
       list.append(
         h(
-          'button',
-          { className: 'card', onClick: () => navigate({ name: 'song', id: song.id }) },
-          h('div', { className: 'grow' }, h('div', { className: 'title' }, song.title), h('div', { className: 'meta' }, song.artist || ' ')),
-          h('span', { className: 'badge' }, displayTom(song))
+          'div',
+          { className: 'card' },
+          h(
+            'button',
+            { className: 'grow', style: { textAlign: 'left', minWidth: '0' }, onClick: () => navigate({ name: 'song', id: song.id }) },
+            h('div', { className: 'title' }, song.title),
+            h('div', { className: 'meta' }, song.artist || ' ')
+          ),
+          h('span', { className: 'badge' }, displayTom(song)),
+          h(
+            'button',
+            {
+              className: 'iconbtn',
+              'aria-label': 'Excluir música',
+              onClick: async () => {
+                if (await confirmDialog(`Excluir "${song.title}" da biblioteca? Ela também sai de todos os shows.`)) {
+                  await store.deleteSong(song.id)
+                  renderList()
+                }
+              },
+            },
+            '🗑'
+          )
         )
       )
     }

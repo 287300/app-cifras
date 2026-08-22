@@ -42,6 +42,9 @@ C       D        G    Em
 Vem cantar comigo agora
 `
 
+// versão comprida para a leitura ter o que rolar (como uma cifra real de 4 minutos)
+const FIXTURE_LONGA = FIXTURE + Array.from({ length: 6 }, (_, i) => `\n[Verso ${i + 2}]\nG                D/F#\nMais uma linha de exemplo aqui\nEm             C\nOutra linha para alongar a cifra\nG        D          C\nE o texto segue descendo a tela\n`).join('')
+
 const fails = []
 function check(name, cond) {
   if (cond) console.log('  ok:', name)
@@ -69,7 +72,7 @@ try {
   // adicionar música pela biblioteca, colando com o cabeçalho do botão de importar
   await page.click('.tabbar button:has-text("Biblioteca")')
   await page.click('button[aria-label="Adicionar música"]')
-  await page.fill('textarea', 'Música: Minha Cancao\nArtista: Exemplo\n\n' + FIXTURE)
+  await page.fill('textarea', 'Música: Minha Cancao\nArtista: Exemplo\n\n' + FIXTURE_LONGA)
   check('colagem preenche o nome sozinho', (await page.inputValue('input[placeholder="Nome da música"]')) === 'Minha Cancao')
   check('colagem preenche o artista sozinho', (await page.inputValue('input[placeholder^="Artista"]')) === 'Exemplo')
   check('cabeçalho sai do corpo da cifra', !(await page.inputValue('textarea')).includes('Música:'))
@@ -94,9 +97,12 @@ try {
   check('baixo do acorde indicado', (await page.textContent('.notesline')).includes('baixo'))
   await page.click('.sheetwrap .backdrop')
 
-  // rolagem automática liga e desliga
+  // rolagem automática liga, DESCE DE VERDADE e desliga
   await page.click('.scrollflag')
   check('rolagem automática liga', (await page.textContent('.scrollflag')).includes('rolando'))
+  await page.waitForTimeout(1400)
+  const scrolled = await page.evaluate(() => document.querySelector('.reader .content').scrollTop)
+  check('rolagem realmente desce a tela (+' + Math.round(scrolled) + 'px)', scrolled > 8)
   await page.click('.scrollflag')
 
   // persistência: recarrega e a música continua
@@ -190,6 +196,15 @@ try {
   await page.click('button:has-text("Colar e salvar")')
   await page.waitForSelector('.banner:has-text("mesma cifra")')
   check('assistente barra colagem repetida', true)
+  // excluir música direto da biblioteca, com confirmação
+  await page.evaluate(() => { location.hash = '#/library' })
+  await page.waitForSelector('.card:has-text("Minha Cancao")')
+  await page.click('.card:has-text("Minha Cancao") button[aria-label="Excluir música"]')
+  await page.waitForSelector('.confirmbox')
+  await page.click('.confirmbox button:has-text("Excluir")')
+  await page.waitForTimeout(400)
+  check('música excluída some da biblioteca', !(await page.isVisible('.card .title:has-text("Minha Cancao")')))
+
   await page.evaluate(() => { location.hash = '#/shows' })
   await page.waitForSelector('.tabbar')
 

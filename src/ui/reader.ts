@@ -3,7 +3,7 @@
 // lista de acordes e navegação entre músicas do show.
 
 import { store, type Song } from '../store.ts'
-import { h, sheet } from './dom.ts'
+import { confirmDialog, h, sheet } from './dom.ts'
 import { renderCifra } from './cifraView.ts'
 import { openChordSheet } from './chordSheet.ts'
 
@@ -53,10 +53,12 @@ class AutoScroll {
   playing = false
   private raf = 0
   private lastTs = 0
+  private progress = 0 // posição acumulada em px (permite passo menor que 1px por quadro)
   constructor(
     private el: HTMLElement,
     public seconds: number,
-    private onChange: (playing: boolean) => void
+    private onChange: (playing: boolean) => void,
+    private onNoScroll: () => void
   ) {}
 
   toggle(): void {
@@ -65,17 +67,31 @@ class AutoScroll {
 
   start(): void {
     if (this.playing) return
+    const total = this.el.scrollHeight - this.el.clientHeight
+    if (total <= 8) {
+      // a cifra cabe inteira na tela: nada para rolar
+      this.onNoScroll()
+      return
+    }
+    // no fim (ou perto), recomeça do topo
+    if (this.el.scrollTop >= total - 6) this.el.scrollTop = 0
     this.playing = true
     this.lastTs = 0
+    this.progress = this.el.scrollTop
     this.onChange(true)
     const step = (ts: number) => {
       if (!this.playing) return
       if (this.lastTs > 0) {
         const dt = (ts - this.lastTs) / 1000
-        const total = this.el.scrollHeight - this.el.clientHeight
-        if (total > 0 && this.seconds > 0) {
-          this.el.scrollTop += (total / this.seconds) * dt
-          if (this.el.scrollTop >= total - 1) this.stop()
+        const totalNow = this.el.scrollHeight - this.el.clientHeight
+        if (totalNow > 0 && this.seconds > 0) {
+          // velocidade da música, com um piso visível (cifra curta termina antes, sem problema)
+          const rate = Math.max(totalNow / this.seconds, 10)
+          // se o usuário arrastou a tela, segue do ponto novo
+          if (Math.abs(this.el.scrollTop - this.progress) > 24) this.progress = this.el.scrollTop
+          this.progress += rate * dt
+          this.el.scrollTop = this.progress
+          if (this.el.scrollTop >= totalNow - 1) this.stop()
         }
       }
       this.lastTs = ts
@@ -146,10 +162,21 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
 
     // indicador e controle da rolagem
     const flag = h('button', { className: 'scrollflag' }, '▶ rolagem')
-    scroller = new AutoScroll(content, entry.song.scrollSeconds || 180, (playing) => {
-      flag.textContent = playing ? '❚❚ rolando' : '▶ rolagem'
-      flag.classList.toggle('on', playing)
-    })
+    scroller = new AutoScroll(
+      content,
+      entry.song.scrollSeconds || 180,
+      (playing) => {
+        flag.textContent = playing ? '❚❚ rolando' : '▶ rolagem'
+        flag.classList.toggle('on', playing)
+      },
+      () => {
+        flag.textContent = 'cifra inteira na tela'
+        flag.classList.remove('on')
+        setTimeout(() => {
+          flag.textContent = scroller?.playing ? '❚❚ rolando' : '▶ rolagem'
+        }, 2000)
+      }
+    )
     flag.addEventListener('click', (e) => {
       e.stopPropagation()
       scroller?.toggle()
@@ -260,7 +287,22 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
         ),
         opts.onEditCurrent
           ? h('button', { className: 'btn block', style: { marginTop: '10px' }, onClick: () => { close(); opts.onEditCurrent!() } }, 'Editar cifra')
-          : null
+          : null,
+        h(
+          'button',
+          {
+            className: 'btn danger block',
+            style: { marginTop: '10px' },
+            onClick: async () => {
+              close()
+              if (await confirmDialog(`Excluir "${song.title}"? Sai da biblioteca e de todos os shows.`)) {
+                await store.deleteSong(song.id)
+                opts.onExit()
+              }
+            },
+          },
+          'Excluir música'
+        )
       )
     }
 
