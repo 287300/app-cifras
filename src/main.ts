@@ -71,14 +71,23 @@ async function boot(): Promise<void> {
   if ('serviceWorker' in navigator) {
     try {
       const reg = await navigator.serviceWorker.register('./sw.js')
-      // recarrega uma única vez quando uma versão nova assumir
+      // recarrega quando uma versão nova assumir (uma vez por carga da página)
       let reloaded = false
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
+      const reloadOnce = () => {
         if (reloaded) return
         reloaded = true
         location.reload()
+      }
+      navigator.serviceWorker.addEventListener('controllerchange', reloadOnce)
+      // o service worker novo avisa ao ativar (cobre o caso de duas atualizações seguidas)
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if ((e.data as { type?: string } | null)?.type === 'sw-ativado') reloadOnce()
       })
+      // confere por atualização ao abrir e sempre que o app volta para a frente
       void reg.update()
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') void reg.update()
+      })
     } catch {
       // sem service worker (ex.: rodando de file://): o app segue funcionando online
     }

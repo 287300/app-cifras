@@ -1,5 +1,5 @@
-// Gerado por scripts/build.ts — versão 292e1d22da1c
-const VERSION = 'cifras-292e1d22da1c';
+// Gerado por scripts/build.ts — versão 23d56049fdb7
+const VERSION = 'cifras-23d56049fdb7';
 const PRECACHE = ["./","./assets/app.js","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./index.html","./manifest.json","./styles.css"];
 
 self.addEventListener('install', (event) => {
@@ -13,6 +13,8 @@ self.addEventListener('activate', (event) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then((clients) => clients.forEach((c) => c.postMessage({ type: 'sw-ativado', version: VERSION })))
   );
 });
 
