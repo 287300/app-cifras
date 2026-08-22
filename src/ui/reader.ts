@@ -224,13 +224,48 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
     }
 
     // rodapé: posição no show, fonte e acordes
+    // botão explícito de troca de música no palco: "› próxima" com o nome dela
+    const multi = opts.entries.length > 1
+    const nextEntry = opts.entries[opts.index + 1]
+    const prevBtn = multi
+      ? h(
+          'button',
+          {
+            className: 'iconbtn',
+            'aria-label': 'Música anterior',
+            disabled: opts.index === 0,
+            style: opts.index === 0 ? { opacity: '0.35' } : null,
+            onClick: (e: Event) => {
+              e.stopPropagation()
+              go(-1)
+            },
+          },
+          '‹'
+        )
+      : null
+    const nextBtn = multi
+      ? h(
+          'button',
+          {
+            className: 'btn primary nextbtn',
+            'aria-label': 'Próxima música',
+            disabled: !nextEntry,
+            onClick: (e: Event) => {
+              e.stopPropagation()
+              go(1)
+            },
+          },
+          h('span', { className: 'nextlabel' }, nextEntry ? '›  ' + nextEntry.song.title : 'última música')
+        )
+      : null
+
     const foot = h(
       'div',
       { className: 'playerfoot' },
-      opts.entries.length > 1
-        ? h('span', { className: 'hint', style: { minWidth: '64px' } }, `${opts.index + 1} / ${opts.entries.length}`)
-        : h('span', { style: { minWidth: '64px' } }, ' '),
-      h('div', { className: 'grow', style: { flex: '1' } }),
+      prevBtn,
+      multi ? h('span', { className: 'hint', style: { flex: 'none' } }, `${opts.index + 1}/${opts.entries.length}`) : null,
+      nextBtn,
+      multi ? null : h('div', { className: 'grow', style: { flex: '1' } }),
       h(
         'button',
         {

@@ -209,6 +209,16 @@ try {
   await page.click('button:has-text("Colar e salvar")')
   await page.waitForSelector('.banner:has-text("mesma cifra")')
   check('assistente barra colagem repetida', true)
+  // botão "próxima música" visível no palco, com o nome da próxima
+  await page.evaluate(() => { location.hash = '#/play/show3008/0' })
+  await page.waitForSelector('.playerfoot .nextbtn')
+  check('botão mostra o nome da próxima música', (await page.textContent('.playerfoot .nextbtn')).includes("L'Avventura"))
+  await page.click('.playerfoot .nextbtn')
+  await page.waitForSelector('.readerbar .t .meta:has-text("2 de 13")')
+  check('botão troca de música na hora', true)
+  await page.click('button[aria-label="Sair"]')
+  await page.waitForSelector('button:has-text("Tocar o show")')
+
   // excluir música direto da biblioteca, com confirmação
   await page.evaluate(() => { location.hash = '#/library' })
   await page.waitForSelector('.card:has-text("Minha Cancao")')

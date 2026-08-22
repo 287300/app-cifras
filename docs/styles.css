@@ -169,6 +169,11 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 }
 .scrollbtn:active { border-color: var(--accent); color: var(--accent); }
 
+/* botão de próxima música no rodapé do palco */
+.playerfoot .nextbtn { flex: 1; min-width: 0; min-height: 48px; justify-content: flex-start; padding: 0 14px; }
+.playerfoot .nextbtn .nextlabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.playerfoot .nextbtn:disabled { opacity: 0.4; }
+
 /* ---------- folha inferior (acordes etc.) ---------- */
 .sheetwrap { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; justify-content: flex-end; }
 .sheetwrap .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); }
