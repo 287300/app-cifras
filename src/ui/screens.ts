@@ -223,6 +223,21 @@ export function showEditScreen(id: string): HTMLElement {
     )
   )
 
+  const pendentes = show.items.map((it) => store.songs.get(it.songId)).filter((s): s is Song => !!s && isSkeleton(s)).length
+  if (pendentes > 0) {
+    content.append(
+      h(
+        'button',
+        {
+          className: 'btn primary block',
+          style: { marginBottom: '14px', minHeight: '58px' },
+          onClick: () => navigate({ name: 'carga', showId: show.id }),
+        },
+        `🪄 Assistente de carga: faltam ${pendentes} cifra${pendentes === 1 ? '' : 's'}`
+      )
+    )
+  }
+
   if (show.items.length === 0) {
     content.append(empty('🎼', 'Setlist vazia. Toque em ＋ Música para trazer músicas da biblioteca, na ordem do show.'))
   } else {
@@ -816,6 +831,160 @@ export function moreScreen(): HTMLElement {
     fileInput
   )
   root.append(content)
+  return root
+}
+
+// ---------- assistente de carga (o app conduz música a música) ----------
+
+/** A música ainda está de esqueleto (sem cifra de verdade)? */
+export function isSkeleton(song: Song): boolean {
+  return song.body.includes('COLE A CIFRA AQUI') || song.body.trim() === ''
+}
+
+let lastLoadedClip = ''
+
+export function cargaScreen(showId: string): HTMLElement {
+  const root = h('div', { className: 'screen' })
+  const skipped = new Set<string>()
+
+  const render = () => {
+    root.replaceChildren()
+    const show = store.shows.get(showId)
+    if (!show) {
+      navigate({ name: 'shows' })
+      return
+    }
+    const all = show.items.map((it) => store.songs.get(it.songId)).filter((s): s is Song => !!s)
+    const missing = all.filter((s) => isSkeleton(s))
+    const queue = missing.filter((s) => !skipped.has(s.id)).concat(missing.filter((s) => skipped.has(s.id)))
+    const done = all.length - missing.length
+
+    root.append(topbar('Assistente de carga', { back: { name: 'show', id: showId } }))
+    const content = h('div', { className: 'content' })
+
+    content.append(
+      h(
+        'p',
+        { className: 'hint', style: { marginBottom: '14px', fontSize: '16px' } },
+        `${show.name}: `,
+        h('b', { style: { color: 'var(--green)' } }, String(done)),
+        ` de ${all.length} músicas com cifra`
+      )
+    )
+
+    if (queue.length === 0) {
+      content.append(
+        h('div', { className: 'empty' }, h('div', { className: 'big' }, '🎉'), 'Todas as músicas do show estão com cifra. Bom ensaio!'),
+        h('button', { className: 'btn primary block', onClick: () => navigate({ name: 'play', showId, idx: 0 }) }, '▶  Tocar o show')
+      )
+      root.append(content)
+      return
+    }
+
+    const current = queue[0]!
+    const error = h('div', { style: { display: 'none' } })
+    const showError = (msg: string) => {
+      error.replaceChildren(h('div', { className: 'banner' }, msg))
+      error.style.display = 'block'
+    }
+
+    content.append(
+      h(
+        'div',
+        { className: 'card', style: { flexDirection: 'column', alignItems: 'stretch', gap: '6px', marginBottom: '16px', padding: '18px' } },
+        h('div', { className: 'meta' }, `Próxima (${done + 1} de ${all.length}):`),
+        h('div', { style: { fontSize: '26px', fontWeight: '750' } }, current.title),
+        h('div', { className: 'meta', style: { fontSize: '16px' } }, current.artist || ' ')
+      ),
+      h(
+        'button',
+        {
+          className: 'btn block',
+          style: { marginBottom: '10px' },
+          onClick: () => {
+            const q = encodeURIComponent((current.artist + ' ' + current.title).trim())
+            window.open('https://www.cifraclub.com.br/?q=' + q, '_blank')
+          },
+        },
+        '1 · Buscar a cifra (abre o site)'
+      ),
+      h(
+        'p',
+        { className: 'hint', style: { margin: '0 0 10px' } },
+        'Na página da cifra, toque no favorito "Copiar cifra" e volte para cá. ',
+        h('a', { href: '#/botao', style: { color: 'var(--blue)' } }, 'Ainda não instalou o botão?')
+      ),
+      h(
+        'button',
+        {
+          className: 'btn primary block',
+          style: { minHeight: '64px', fontSize: '18px' },
+          onClick: async () => {
+            let text = ''
+            try {
+              text = await navigator.clipboard.readText()
+            } catch {
+              showError('Não consegui ler a área de transferência. Toque de novo e permita o acesso, ou use a edição manual da música.')
+              return
+            }
+            if (!text.trim()) {
+              showError('A área de transferência está vazia. Toque no favorito "Copiar cifra" na página da cifra antes de voltar.')
+              return
+            }
+            if (text === lastLoadedClip) {
+              showError('Isso é a mesma cifra da música anterior. Busque e copie a cifra desta música antes de colar.')
+              return
+            }
+            const header = extractImportHeader(text)
+            const body = header.body
+            const parsed = parseCifra(body)
+            const chordLines = parsed.blocks.flatMap((b) => b.lines).filter((l) => l.kind === 'chords').length
+            if (chordLines < 2) {
+              showError('O texto copiado não parece uma cifra (não achei linhas de acordes). Confira se copiou a página certa.')
+              return
+            }
+            const tom = parsed.tom && parseKey(parsed.tom) ? parsed.tom : current.tom
+            await store.updateSong(current.id, { body, tom })
+            lastLoadedClip = text
+            render()
+          },
+        },
+        '2 · Colar e salvar, próxima ›'
+      ),
+      error,
+      h(
+        'div',
+        { className: 'row', style: { marginTop: '14px' } },
+        h(
+          'button',
+          {
+            className: 'btn small',
+            style: { flex: '1' },
+            onClick: () => {
+              skipped.add(current.id)
+              render()
+            },
+          },
+          'Pular por enquanto'
+        ),
+        h('button', { className: 'btn small', style: { flex: '1' }, onClick: () => navigate({ name: 'edit', id: current.id }) }, 'Edição manual')
+      )
+    )
+
+    if (queue.length > 1) {
+      content.append(
+        h(
+          'p',
+          { className: 'hint', style: { marginTop: '18px' } },
+          'Na fila: ' + queue.slice(1, 4).map((s) => s.title).join(' · ') + (queue.length > 4 ? ` e mais ${queue.length - 4}` : '')
+        )
+      )
+    }
+
+    root.append(content)
+  }
+
+  render()
   return root
 }
 

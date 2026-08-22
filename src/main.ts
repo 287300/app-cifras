@@ -4,7 +4,7 @@
 import { currentRoute, navigate, onRouteChange, type Route } from './router.ts'
 import { store } from './store.ts'
 import { h, clear } from './ui/dom.ts'
-import { addScreen, botaoScreen, editScreen, libraryScreen, moreScreen, planbScreen, playerScreen, showEditScreen, showsScreen, songScreen } from './ui/screens.ts'
+import { addScreen, botaoScreen, cargaScreen, editScreen, libraryScreen, moreScreen, planbScreen, playerScreen, showEditScreen, showsScreen, songScreen } from './ui/screens.ts'
 
 const rootEl = document.getElementById('root')!
 
@@ -57,6 +57,9 @@ function render(route: Route): void {
       break
     case 'botao':
       rootEl.append(botaoScreen())
+      break
+    case 'carga':
+      rootEl.append(cargaScreen(route.showId))
       break
   }
 }

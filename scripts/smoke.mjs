@@ -53,7 +53,8 @@ function check(name, cond) {
 
 await new Promise((r) => server.listen(PORT, r))
 const browser = await chromium.launch()
-const page = await browser.newPage({ viewport: { width: 834, height: 1112 } }) // iPad retrato
+const ctx = await browser.newContext({ viewport: { width: 834, height: 1112 }, permissions: ['clipboard-read', 'clipboard-write'] }) // iPad retrato
+const page = await ctx.newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(String(e)))
 page.on('console', (m) => {
@@ -143,6 +144,27 @@ try {
   const importMsg = await page.textContent('.sheet p')
   check('importar o próprio backup não duplica (novas: 0)', importMsg.includes('Novas: 0'))
   await page.click('.sheet button:has-text("Ok")')
+
+  // assistente de carga: show importado por esqueleto, cifra entra pelo fluxo guiado
+  await page.setInputFiles('input[type="file"]', new URL('../show-30-08.json', import.meta.url).pathname)
+  await page.waitForSelector('.sheet')
+  await page.click('.sheet button:has-text("Ok")')
+  await page.click('.tabbar button:has-text("Shows")')
+  await page.click('.card:has-text("Show 30/08")')
+  await page.waitForSelector('button:has-text("Assistente de carga")')
+  check('show com esqueletos oferece o assistente', await page.isVisible('text=faltam 13 cifras'))
+  await page.click('button:has-text("Assistente de carga")')
+  await page.waitForSelector('text=Natalia')
+  const FAKE = 'Música: Natalia\nArtista: Legião Urbana\n\nTom: Am\n\n[Intro] Am  G  F  E\n\nAm            G\nLinha de exemplo um\nF             E\nLinha de exemplo dois\n'
+  await page.evaluate((t) => navigator.clipboard.writeText(t), FAKE)
+  await page.click('button:has-text("Colar e salvar")')
+  await page.waitForSelector('text=1 de 13 músicas com cifra')
+  check('assistente salva e avança para a próxima', await page.isVisible("text=L'Avventura"))
+  await page.click('button:has-text("Colar e salvar")')
+  await page.waitForSelector('.banner')
+  check('assistente barra colagem repetida', (await page.textContent('.banner')).includes('mesma cifra'))
+  await page.evaluate(() => { location.hash = '#/shows' })
+  await page.waitForSelector('.tabbar')
 
   // modo avião: derruba a rede e o app inteiro precisa continuar abrindo
   await page.context().setOffline(true)

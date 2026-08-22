@@ -10,6 +10,7 @@ export type Route =
   | { name: 'edit'; id: string }
   | { name: 'add'; to: string | null }
   | { name: 'planb'; showId: string | null }
+  | { name: 'carga'; showId: string }
   | { name: 'more' }
   | { name: 'botao' }
 
@@ -34,6 +35,9 @@ export function parseHash(hash: string): Route {
       return { name: 'add', to: parts[1] ?? null }
     case 'planb':
       return { name: 'planb', showId: parts[1] ?? null }
+    case 'carga':
+      if (parts[1]) return { name: 'carga', showId: parts[1] }
+      return { name: 'shows' }
     case 'more':
       return { name: 'more' }
     case 'botao':
@@ -61,6 +65,8 @@ export function routePath(route: Route): string {
       return '#/add' + (route.to ? '/' + route.to : '')
     case 'planb':
       return '#/planb' + (route.showId ? '/' + route.showId : '')
+    case 'carga':
+      return '#/carga/' + route.showId
     case 'more':
       return '#/more'
     case 'botao':
