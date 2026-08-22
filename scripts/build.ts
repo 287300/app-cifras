@@ -36,6 +36,13 @@ for (const name of readdirSync(join(ROOT, 'web'))) {
   cpSync(join(ROOT, 'web', name), join(OUT, name), { recursive: true })
 }
 
+// 3.5) .htaccess para o espelho no Hostinger (o GitHub Pages ignora este arquivo):
+// sem listagem de pastas e sem cache de navegador (o offline fica por conta do service worker)
+writeFileSync(
+  join(OUT, '.htaccess'),
+  'Options -Indexes\nHeader set Cache-Control "no-cache"\n'
+)
+
 // 4) lista os arquivos finais e calcula a versão pelo conteúdo
 function walk(dir: string, base = ''): string[] {
   const out: string[] = []
@@ -47,7 +54,7 @@ function walk(dir: string, base = ''): string[] {
   }
   return out
 }
-const files = walk(OUT).filter((f) => f !== 'sw.js')
+const files = walk(OUT).filter((f) => f !== 'sw.js' && f !== '.htaccess')
 const hash = createHash('sha256')
 for (const f of files.sort()) hash.update(f).update(readFileSync(join(OUT, f)))
 const version = hash.digest('hex').slice(0, 12)

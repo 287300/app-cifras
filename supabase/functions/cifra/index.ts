@@ -9,6 +9,8 @@
 
 const ALLOWED_ORIGINS = new Set([
   'https://287300.github.io',
+  'https://cifrasdoeder.com.br',
+  'https://www.cifrasdoeder.com.br',
   'http://localhost:8080',
   'http://localhost:8123',
   'http://localhost:8129',
