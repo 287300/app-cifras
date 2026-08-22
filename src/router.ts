@@ -11,6 +11,7 @@ export type Route =
   | { name: 'add'; to: string | null }
   | { name: 'planb'; showId: string | null }
   | { name: 'more' }
+  | { name: 'botao' }
 
 export function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean)
@@ -35,6 +36,8 @@ export function parseHash(hash: string): Route {
       return { name: 'planb', showId: parts[1] ?? null }
     case 'more':
       return { name: 'more' }
+    case 'botao':
+      return { name: 'botao' }
     default:
       return { name: 'shows' }
   }
@@ -60,6 +63,8 @@ export function routePath(route: Route): string {
       return '#/planb' + (route.showId ? '/' + route.showId : '')
     case 'more':
       return '#/more'
+    case 'botao':
+      return '#/botao'
   }
 }
 

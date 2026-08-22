@@ -2,6 +2,7 @@
 // busca plano B e mais (backup). A leitura de palco vive em reader.ts.
 
 import { parseCifra } from '../engine/parse.ts'
+import { extractImportHeader } from '../engine/importHeader.ts'
 import { transposeKey, parseKey } from '../engine/notes.ts'
 import { navigate, type Route } from '../router.ts'
 import { store, type Show, type Song } from '../store.ts'
@@ -31,6 +32,53 @@ function displayTom(song: Song, override?: number): string {
 }
 
 const TOM_OPTIONS = ['C', 'C#', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B', 'Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm']
+
+/**
+ * Colagem esperta: se o texto vier do botão de importar (cabeçalho
+ * "Música:/Artista:"), preenche os campos vazios e deixa só a cifra no corpo;
+ * o tom é detectado da cifra quando o campo ainda está vazio.
+ */
+function wireSmartPaste(body: HTMLTextAreaElement, fields: { title?: HTMLInputElement; artist?: HTMLInputElement; tom: HTMLSelectElement }): void {
+  body.addEventListener('input', () => {
+    const header = extractImportHeader(body.value)
+    if (header.title !== null || header.artist !== null) {
+      if (fields.title && !fields.title.value && header.title) fields.title.value = header.title
+      if (fields.artist && !fields.artist.value && header.artist) fields.artist.value = header.artist
+      body.value = header.body
+    }
+    if (!fields.tom.value) {
+      const parsed = parseCifra(body.value)
+      if (parsed.tom && parseKey(parsed.tom)) fields.tom.value = parsed.tom
+    }
+  })
+}
+
+/** Bloco de busca de cifra na internet: nome + banda e botões de busca. */
+function searchBlock(initial = ''): HTMLElement {
+  const query = h('input', { placeholder: 'Nome da música e banda (ex.: Natalia Legião Urbana)', value: initial }) as HTMLInputElement
+  const open = (base: string) => {
+    const q = query.value.trim()
+    if (q) window.open(base + encodeURIComponent(q), '_blank')
+  }
+  return h(
+    'div',
+    { className: 'field' },
+    h('label', null, 'Buscar a cifra na internet'),
+    query,
+    h(
+      'div',
+      { className: 'row', style: { marginTop: '10px' } },
+      h('button', { className: 'btn small', style: { flex: '1' }, onClick: () => open('https://www.cifraclub.com.br/?q=') }, 'Cifra Club'),
+      h('button', { className: 'btn small', style: { flex: '1' }, onClick: () => open('https://www.google.com/search?q=cifra+') }, 'Google')
+    ),
+    h(
+      'p',
+      { className: 'hint', style: { marginTop: '8px' } },
+      'Na página da cifra, toque no favorito "Copiar cifra" (uma vez instalado) e volte aqui: o Colar preenche tudo. ',
+      h('a', { href: '#/botao', style: { color: 'var(--blue)' } }, 'Instalar o botão')
+    )
+  )
+}
 
 function tomSelect(value: string): HTMLSelectElement {
   const sel = h('select', null) as HTMLSelectElement
@@ -500,29 +548,26 @@ export function addScreen(to: string | null): HTMLElement {
   const pasteBtn = h(
     'button',
     {
-      className: 'btn',
+      className: 'btn primary block',
       onClick: async () => {
         try {
           const text = await navigator.clipboard.readText()
           if (text) {
             body.value = text
-            afterPaste()
+            body.dispatchEvent(new Event('input'))
           }
         } catch {
           body.focus()
         }
       },
     },
-    '📋 Colar da área de transferência'
+    '📋 Colar cifra copiada (preenche tudo sozinho)'
   )
 
-  const afterPaste = () => {
-    const parsed = parseCifra(body.value)
-    if (parsed.tom && parseKey(parsed.tom)) tom.value = parsed.tom
-  }
-  body.addEventListener('input', afterPaste)
+  wireSmartPaste(body, { title, artist, tom })
 
   content.append(
+    searchBlock(),
     h('div', { className: 'field' }, pasteBtn),
     h('div', { className: 'field' }, h('label', null, 'Cifra'), body),
     h('div', { className: 'field' }, h('label', null, 'Nome da música'), title),
@@ -573,18 +618,34 @@ export function editScreen(id: string): HTMLElement {
   notes.value = song.notes
   const body = h('textarea', { rows: 16 }) as HTMLTextAreaElement
   body.value = song.body
-  // colar por cima de um esqueleto: se o tom ainda não foi definido, detecta da colagem
-  body.addEventListener('input', () => {
-    if (tom.value) return
-    const parsed = parseCifra(body.value)
-    if (parsed.tom && parseKey(parsed.tom)) tom.value = parsed.tom
-  })
+  // colar por cima de um esqueleto: cabeçalho do botão de importar vira campos
+  // (sem sobrescrever o que já está preenchido) e o tom é detectado da cifra
+  wireSmartPaste(body, { title, artist, tom })
+  const pasteOverBtn = h(
+    'button',
+    {
+      className: 'btn block',
+      onClick: async () => {
+        try {
+          const text = await navigator.clipboard.readText()
+          if (text) {
+            body.value = text
+            body.dispatchEvent(new Event('input'))
+          }
+        } catch {
+          body.focus()
+        }
+      },
+    },
+    '📋 Colar cifra por cima (substitui o texto abaixo)'
+  )
 
   content.append(
     h('div', { className: 'field' }, h('label', null, 'Nome'), title),
     h('div', { className: 'field' }, h('label', null, 'Artista'), artist),
     h('div', { className: 'field' }, h('label', null, 'Tom'), tom),
     h('div', { className: 'field' }, h('label', null, 'Observações (aparecem destacadas na leitura)'), notes),
+    h('div', { className: 'field' }, pasteOverBtn),
     h('div', { className: 'field' }, h('label', null, 'Cifra'), body),
     h(
       'button',
@@ -636,49 +697,37 @@ export function planbScreen(showId: string | null): HTMLElement {
     content.append(h('div', { className: 'banner ok' }, 'Com internet. Busque a cifra, copie o texto dela e cole aqui embaixo: ela entra direto na leitura de palco.'))
   }
 
-  const query = h('input', { placeholder: 'Nome da música (e artista, se souber)' }) as HTMLInputElement
   const body = h('textarea', { rows: 8, placeholder: 'Cole a cifra copiada aqui…' }) as HTMLTextAreaElement
   const title = h('input', { placeholder: 'Nome da música' }) as HTMLInputElement
+  const artist = h('input', { placeholder: 'Artista (opcional)' }) as HTMLInputElement
   const tom = tomSelect('')
+  wireSmartPaste(body, { title, artist, tom })
 
-  body.addEventListener('input', () => {
-    const parsed = parseCifra(body.value)
-    if (parsed.tom && parseKey(parsed.tom)) tom.value = parsed.tom
-    if (!title.value && query.value) title.value = query.value
-  })
+  const pasteBtn = h(
+    'button',
+    {
+      className: 'btn primary block',
+      onClick: async () => {
+        try {
+          const text = await navigator.clipboard.readText()
+          if (text) {
+            body.value = text
+            body.dispatchEvent(new Event('input'))
+          }
+        } catch {
+          body.focus()
+        }
+      },
+    },
+    '📋 Colar cifra copiada (preenche tudo sozinho)'
+  )
 
   content.append(
-    h('div', { className: 'field' }, h('label', null, '1. Buscar a cifra'), query),
-    h(
-      'div',
-      { className: 'row', style: { marginBottom: '18px' } },
-      h(
-        'button',
-        {
-          className: 'btn',
-          style: { flex: '1' },
-          onClick: () => {
-            const q = encodeURIComponent(query.value.trim())
-            if (q) window.open('https://www.cifraclub.com.br/?q=' + q, '_blank')
-          },
-        },
-        'Cifra Club'
-      ),
-      h(
-        'button',
-        {
-          className: 'btn',
-          style: { flex: '1' },
-          onClick: () => {
-            const q = encodeURIComponent(query.value.trim() + ' cifra')
-            if (query.value.trim()) window.open('https://www.google.com/search?q=' + q, '_blank')
-          },
-        },
-        'Google'
-      )
-    ),
-    h('div', { className: 'field' }, h('label', null, '2. Colar a cifra'), body),
+    searchBlock(),
+    h('div', { className: 'field' }, pasteBtn),
+    h('div', { className: 'field' }, h('label', null, 'Cifra'), body),
     h('div', { className: 'field' }, h('label', null, 'Nome'), title),
+    h('div', { className: 'field' }, h('label', null, 'Artista'), artist),
     h('div', { className: 'field' }, h('label', null, 'Tom (detectado quando possível)'), tom),
     h(
       'button',
@@ -689,7 +738,7 @@ export function planbScreen(showId: string | null): HTMLElement {
             body.focus()
             return
           }
-          const song = await store.addSong({ title: title.value || query.value || 'Pedido surpresa', artist: '', tom: tom.value, body: body.value })
+          const song = await store.addSong({ title: title.value || 'Pedido surpresa', artist: artist.value, tom: tom.value, body: body.value })
           if (showId) {
             const show = store.shows.get(showId)
             if (show) {
@@ -757,11 +806,75 @@ export function moreScreen(): HTMLElement {
       ),
       h('button', { className: 'btn', style: { flex: '1' }, onClick: () => fileInput.click() }, '⬆ Importar backup')
     ),
+    h('h2', { style: { fontSize: '18px', margin: '8px 0' } }, 'Importar cifras'),
+    h('p', { className: 'hint', style: { marginBottom: '10px' } }, 'O botão "Copiar cifra" nos favoritos do navegador copia a cifra de qualquer site já com nome e artista; no app, Colar preenche tudo.'),
+    h('button', { className: 'btn block', style: { marginBottom: '14px' }, onClick: () => navigate({ name: 'botao' }) }, 'Instalar o botão "Copiar cifra"'),
     h('h2', { style: { fontSize: '18px', margin: '8px 0' } }, 'Pedido surpresa'),
     h('p', { className: 'hint', style: { marginBottom: '10px' } }, 'Busca online para músicas fora da biblioteca (precisa de sinal).'),
     h('button', { className: 'btn block', style: { marginBottom: '24px' }, onClick: () => navigate({ name: 'planb', showId: null }) }, 'Abrir o Plano B'),
     h('p', { className: 'hint' }, 'Cifras · app pessoal do Eder · funciona offline · os dados vivem só neste aparelho: faça backup antes de trocar de iPad.'),
     fileInput
+  )
+  root.append(content)
+  return root
+}
+
+// ---------- botão de importar (bookmarklet) ----------
+
+const BOOKMARKLET =
+  'javascript:(function(){var s=String((window.getSelection&&window.getSelection())||"").trim();var best=s.length>80?s:"";if(!best){var ps=document.querySelectorAll("pre");for(var i=0;i<ps.length;i++){var t=(ps[i].innerText||"").trim();if(t.length>best.length)best=t}}if(!best)best=(document.body.innerText||"").trim();var ti=document.title.replace(/\\s*[|\\u2013\\u2014-]\\s*(Cifra Club|Cifras|Letras.*|Chords.*|Ultimate.*)\\s*$/i,"");var p=ti.split(/\\s[-\\u2013]\\s/);var song=(p[0]||"").trim();var art=(p[1]||"").trim();var out="M\\u00fasica: "+song+"\\nArtista: "+art+"\\n\\n"+best;function ok(){var d=document.createElement("div");d.textContent="Cifra copiada! Abra o app Cifras e toque em Colar.";d.setAttribute("style","position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2147483647;background:%230e1116;color:%23ffb454;padding:14px 20px;border-radius:12px;font:15px -apple-system,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.5)");document.body.appendChild(d);setTimeout(function(){d.remove()},2600)}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(out).then(ok,function(){window.prompt("Copie manualmente:",out)})}else{window.prompt("Copie manualmente:",out)}})();'
+
+export function botaoScreen(): HTMLElement {
+  const root = h('div', { className: 'screen' })
+  root.append(topbar('O botão "Copiar cifra"', { back: { name: 'more' } }))
+  const content = h('div', { className: 'content' })
+
+  const code = h('textarea', { rows: 5, readOnly: true }) as HTMLTextAreaElement
+  code.value = BOOKMARKLET
+
+  const copyBtn = h(
+    'button',
+    {
+      className: 'btn primary block',
+      onClick: async () => {
+        try {
+          await navigator.clipboard.writeText(BOOKMARKLET)
+          copyBtn.textContent = '✓ Código copiado'
+          setTimeout(() => (copyBtn.textContent = '📋 Copiar código do botão'), 2000)
+        } catch {
+          code.focus()
+          code.select()
+        }
+      },
+    },
+    '📋 Copiar código do botão'
+  ) as HTMLButtonElement
+
+  content.append(
+    h(
+      'p',
+      { style: { lineHeight: '1.55', marginBottom: '14px' } },
+      'É um favorito mágico do navegador: na página de qualquer cifra, toque nele e a cifra inteira é copiada já com nome da música e artista. Depois é só voltar ao app e tocar em Colar. Nada de selecionar texto.'
+    ),
+    h('div', { className: 'field' }, copyBtn),
+    h('div', { className: 'field' }, h('label', null, 'Código do botão (se preferir copiar à mão)'), code),
+    h('h2', { style: { fontSize: '17px', margin: '16px 0 8px' } }, 'Instalar no computador (Chrome), 1 minuto'),
+    h(
+      'p',
+      { className: 'hint', style: { marginBottom: '14px' } },
+      '1. Copie o código acima. 2. Mostre a barra de favoritos (Cmd+Shift+B). 3. Clique com o botão direito na barra → "Adicionar página…" → nome: Copiar cifra; URL: cole o código → Salvar. Pronto: abra uma cifra e clique no favorito.'
+    ),
+    h('h2', { style: { fontSize: '17px', margin: '16px 0 8px' } }, 'Instalar no iPad (Safari), 2 minutos'),
+    h(
+      'p',
+      { className: 'hint', style: { marginBottom: '14px' } },
+      '1. No Safari do iPad, salve qualquer página nos Favoritos com o nome "Copiar cifra" (compartilhar → Adicionar Favorito). 2. Abra esta tela no Safari do iPad e toque em Copiar código. 3. Toque no ícone de livro → Favoritos → Editar → "Copiar cifra" → apague o endereço, cole o código e confirme. Dica: se o Safari do Mac usa o mesmo iCloud, instale no Mac que ele aparece no iPad sozinho.'
+    ),
+    h(
+      'p',
+      { className: 'hint' },
+      'Uso no palco ou em casa: buscar a música (botões de busca do app) → abrir a cifra → tocar no favorito "Copiar cifra" → voltar ao app → Colar. O botão funciona em qualquer site de cifra.'
+    )
   )
   root.append(content)
   return root

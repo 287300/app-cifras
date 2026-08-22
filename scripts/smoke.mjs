@@ -65,11 +65,13 @@ try {
   await page.waitForSelector('.tabbar', { timeout: 8000 })
   check('app abre na tela de Shows', await page.isVisible('text=Shows'))
 
-  // adicionar música pela biblioteca
+  // adicionar música pela biblioteca, colando com o cabeçalho do botão de importar
   await page.click('.tabbar button:has-text("Biblioteca")')
   await page.click('button[aria-label="Adicionar música"]')
-  await page.fill('textarea', FIXTURE)
-  await page.fill('input[placeholder="Nome da música"]', 'Minha Cancao')
+  await page.fill('textarea', 'Música: Minha Cancao\nArtista: Exemplo\n\n' + FIXTURE)
+  check('colagem preenche o nome sozinho', (await page.inputValue('input[placeholder="Nome da música"]')) === 'Minha Cancao')
+  check('colagem preenche o artista sozinho', (await page.inputValue('input[placeholder^="Artista"]')) === 'Exemplo')
+  check('cabeçalho sai do corpo da cifra', !(await page.inputValue('textarea')).includes('Música:'))
   check('tom detectado da colagem', (await page.inputValue('select')) === 'G')
   await page.click('button:has-text("Salvar música")')
   await page.waitForSelector('.readerbar', { timeout: 5000 })
