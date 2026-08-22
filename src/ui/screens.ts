@@ -3,7 +3,9 @@
 
 import { parseCifra } from '../engine/parse.ts'
 import { extractImportHeader } from '../engine/importHeader.ts'
+import { guessTom } from '../engine/guessTom.ts'
 import { transposeKey, parseKey } from '../engine/notes.ts'
+import { fetchCifraFromUrl, searchCifras, type FetchedCifra, type SearchHit } from '../importer.ts'
 import { navigate, type Route } from '../router.ts'
 import { store, type Show, type Song } from '../store.ts'
 import { confirmDialog, h, sheet } from './dom.ts'
@@ -582,6 +584,11 @@ export function addScreen(to: string | null): HTMLElement {
   wireSmartPaste(body, { title, artist, tom })
 
   content.append(
+    h(
+      'button',
+      { className: 'btn primary block', style: { marginBottom: '14px' }, onClick: () => navigate({ name: 'buscar', showId: to }) },
+      '🔍 Buscar e importar pelo nome'
+    ),
     searchBlock(),
     h('div', { className: 'field' }, pasteBtn),
     h('div', { className: 'field' }, h('label', null, 'Cifra'), body),
@@ -738,6 +745,11 @@ export function planbScreen(showId: string | null): HTMLElement {
   )
 
   content.append(
+    h(
+      'button',
+      { className: 'btn primary block', style: { marginBottom: '14px' }, onClick: () => navigate({ name: 'buscar', showId } ) },
+      '🔍 Buscar e importar pelo nome'
+    ),
     searchBlock(),
     h('div', { className: 'field' }, pasteBtn),
     h('div', { className: 'field' }, h('label', null, 'Cifra'), body),
@@ -841,6 +853,118 @@ export function isSkeleton(song: Song): boolean {
   return song.body.includes('COLE A CIFRA AQUI') || song.body.trim() === ''
 }
 
+/** Escolhe o tom: o anunciado pela página, o declarado na cifra ou o adivinhado pelos acordes. */
+function bestTom(fetched: FetchedCifra, fallback: string): string {
+  if (fetched.tom && parseKey(fetched.tom)) return fetched.tom
+  const parsed = parseCifra(fetched.body)
+  if (parsed.tom && parseKey(parsed.tom)) return parsed.tom
+  return guessTom(parsed) ?? fallback
+}
+
+function cifraSnippet(body: string, lines = 14): HTMLElement {
+  const text = body.split('\n').slice(0, lines).join('\n')
+  const pre = h('pre', {
+    style: {
+      fontFamily: 'var(--mono)',
+      fontSize: '13px',
+      lineHeight: '1.4',
+      background: 'var(--bg)',
+      border: '1px solid var(--border)',
+      borderRadius: '10px',
+      padding: '10px 12px',
+      overflow: 'hidden',
+      whiteSpace: 'pre-wrap',
+      margin: '10px 0',
+    },
+  })
+  pre.textContent = text + '\n…'
+  return pre
+}
+
+/**
+ * Busca dentro do app para UMA música: procura, lista os resultados,
+ * mostra a prévia da escolhida e salva por cima da música existente.
+ */
+function inAppSearch(container: HTMLElement, current: Song, onSaved: () => void): void {
+  const query = (current.artist + ' ' + current.title).trim() || current.title
+
+  const statusLine = (msg: string) => h('p', { className: 'hint', style: { margin: '4px 0 10px' } }, msg)
+
+  const showError = (msg: string) => {
+    container.replaceChildren(
+      h('div', { className: 'banner' }, msg),
+      h('button', { className: 'btn small', onClick: () => start() }, 'Tentar de novo')
+    )
+  }
+
+  const showResults = (hits: SearchHit[]) => {
+    const list = h('div', { className: 'list' })
+    for (const hit of hits.slice(0, 5)) {
+      list.append(
+        h(
+          'button',
+          { className: 'card', onClick: () => void showPreview(hit) },
+          h('div', { className: 'grow' }, h('div', { className: 'title', style: { fontSize: '16px' } }, hit.title), h('div', { className: 'meta' }, hit.host)),
+          h('span', { className: 'hint' }, '›')
+        )
+      )
+    }
+    container.replaceChildren(statusLine('Toque na versão que você quer usar:'), list)
+  }
+
+  const showPreview = async (hit: SearchHit) => {
+    container.replaceChildren(statusLine('Lendo a cifra…'))
+    let fetched: FetchedCifra
+    try {
+      fetched = await fetchCifraFromUrl(hit.url)
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Não consegui ler essa página.')
+      return
+    }
+    const parsed = parseCifra(fetched.body)
+    const chordLines = parsed.blocks.flatMap((b) => b.lines).filter((l) => l.kind === 'chords').length
+    if (chordLines < 2) {
+      showError('Essa página não parece ter uma cifra legível. Tente outro resultado.')
+      return
+    }
+    const tom = bestTom(fetched, current.tom)
+    container.replaceChildren(
+      h(
+        'div',
+        { className: 'row', style: { margin: '4px 0 2px' } },
+        h('span', { className: 'badge' }, tom || '—'),
+        h('span', { className: 'hint' }, 'fonte: ' + fetched.host)
+      ),
+      cifraSnippet(fetched.body),
+      h(
+        'button',
+        {
+          className: 'btn primary block',
+          style: { minHeight: '60px', fontSize: '17px' },
+          onClick: async () => {
+            await store.updateSong(current.id, { body: fetched.body, tom, sourceUrl: fetched.sourceUrl })
+            onSaved()
+          },
+        },
+        '✓ Usar esta, próxima ›'
+      ),
+      h('button', { className: 'btn small block', style: { marginTop: '8px' }, onClick: () => start() }, '‹ Outros resultados')
+    )
+  }
+
+  const start = () => {
+    container.replaceChildren(statusLine(`Buscando "${query}"…`))
+    searchCifras(query)
+      .then((hits) => {
+        if (hits.length === 0) showError('Nada encontrado para "' + query + '". Use o caminho manual aqui embaixo.')
+        else showResults(hits)
+      })
+      .catch((err) => showError(err instanceof Error ? err.message : 'A busca falhou.'))
+  }
+
+  start()
+}
+
 let lastLoadedClip = ''
 
 export function cargaScreen(showId: string): HTMLElement {
@@ -895,18 +1019,30 @@ export function cargaScreen(showId: string): HTMLElement {
         h('div', { className: 'meta' }, `Próxima (${done + 1} de ${all.length}):`),
         h('div', { style: { fontSize: '26px', fontWeight: '750' } }, current.title),
         h('div', { className: 'meta', style: { fontSize: '16px' } }, current.artist || ' ')
-      ),
+      )
+    )
+
+    // busca dentro do app: procura, mostra a prévia e salva sem sair da tela
+    const searchBox = h('div', null)
+    content.append(searchBox)
+    inAppSearch(searchBox, current, () => {
+      lastLoadedClip = ''
+      render()
+    })
+
+    content.append(
+      h('p', { className: 'hint', style: { margin: '20px 0 8px', fontWeight: '600' } }, 'Caminho manual, se a busca falhar:'),
       h(
         'button',
         {
-          className: 'btn block',
+          className: 'btn small',
           style: { marginBottom: '10px' },
           onClick: () => {
             const q = encodeURIComponent((current.artist + ' ' + current.title).trim())
             window.open('https://www.cifraclub.com.br/?q=' + q, '_blank')
           },
         },
-        '1 · Buscar a cifra (abre o site)'
+        'Abrir a busca no site'
       ),
       h(
         'p',
@@ -917,8 +1053,7 @@ export function cargaScreen(showId: string): HTMLElement {
       h(
         'button',
         {
-          className: 'btn primary block',
-          style: { minHeight: '64px', fontSize: '18px' },
+          className: 'btn block',
           onClick: async () => {
             let text = ''
             try {
@@ -949,7 +1084,7 @@ export function cargaScreen(showId: string): HTMLElement {
             render()
           },
         },
-        '2 · Colar e salvar, próxima ›'
+        'Colar e salvar, próxima ›'
       ),
       error,
       h(
@@ -985,6 +1120,113 @@ export function cargaScreen(showId: string): HTMLElement {
   }
 
   render()
+  return root
+}
+
+// ---------- busca avulsa dentro do app ----------
+
+export function buscarScreen(showId: string | null): HTMLElement {
+  const root = h('div', { className: 'screen' })
+  const back: Route = showId ? { name: 'show', id: showId } : { name: 'library' }
+  root.append(topbar('Buscar cifra', { back }))
+  const content = h('div', { className: 'content' })
+
+  const query = h('input', { placeholder: 'Nome da música e banda (ex.: Fátima Capital Inicial)' }) as HTMLInputElement
+  const area = h('div', null)
+
+  const showError = (msg: string) => {
+    area.replaceChildren(h('div', { className: 'banner' }, msg))
+  }
+
+  const showPreview = async (hit: SearchHit) => {
+    area.replaceChildren(h('p', { className: 'hint' }, 'Lendo a cifra…'))
+    let fetched: FetchedCifra
+    try {
+      fetched = await fetchCifraFromUrl(hit.url)
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Não consegui ler essa página.')
+      return
+    }
+    const title = h('input', { value: fetched.title || query.value }) as HTMLInputElement
+    const artist = h('input', { value: fetched.artist }) as HTMLInputElement
+    const tom = tomSelect(bestTom(fetched, ''))
+    const save = async (): Promise<Song> => {
+      return await store.addSong({ title: title.value, artist: artist.value, tom: tom.value, body: fetched.body, sourceUrl: fetched.sourceUrl })
+    }
+    area.replaceChildren(
+      h('div', { className: 'row', style: { margin: '4px 0 2px' } }, h('span', { className: 'badge' }, tom.value || '—'), h('span', { className: 'hint' }, 'fonte: ' + fetched.host)),
+      cifraSnippet(fetched.body),
+      h('div', { className: 'field' }, h('label', null, 'Nome'), title),
+      h('div', { className: 'field' }, h('label', null, 'Artista'), artist),
+      h('div', { className: 'field' }, h('label', null, 'Tom'), tom),
+      showId
+        ? h(
+            'button',
+            {
+              className: 'btn primary block',
+              onClick: async () => {
+                const song = await save()
+                const show = store.shows.get(showId)
+                if (show) await store.updateShow(showId, { items: [...show.items, { songId: song.id }] })
+                navigate({ name: 'show', id: showId })
+              },
+            },
+            '✓ Salvar e colocar no show'
+          )
+        : h(
+            'button',
+            {
+              className: 'btn primary block',
+              onClick: async () => {
+                const song = await save()
+                navigate({ name: 'song', id: song.id })
+              },
+            },
+            '✓ Salvar na biblioteca'
+          ),
+      h('button', { className: 'btn small block', style: { marginTop: '8px' }, onClick: () => doSearch() }, '‹ Outros resultados')
+    )
+  }
+
+  const doSearch = () => {
+    const q = query.value.trim()
+    if (q.length < 2) {
+      query.focus()
+      return
+    }
+    area.replaceChildren(h('p', { className: 'hint' }, `Buscando "${q}"…`))
+    searchCifras(q)
+      .then((hits) => {
+        if (hits.length === 0) {
+          showError('Nada encontrado. Tente incluir o nome da banda, ou use a Nova música para colar manualmente.')
+          return
+        }
+        const list = h('div', { className: 'list' })
+        for (const hit of hits) {
+          list.append(
+            h(
+              'button',
+              { className: 'card', onClick: () => void showPreview(hit) },
+              h('div', { className: 'grow' }, h('div', { className: 'title', style: { fontSize: '16px' } }, hit.title), h('div', { className: 'meta' }, hit.host)),
+              h('span', { className: 'hint' }, '›')
+            )
+          )
+        }
+        area.replaceChildren(h('p', { className: 'hint', style: { marginBottom: '8px' } }, 'Toque na versão que você quer:'), list)
+      })
+      .catch((err) => showError(err instanceof Error ? err.message : 'A busca falhou.'))
+  }
+
+  query.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') doSearch()
+  })
+
+  content.append(
+    h('div', { className: 'field' }, h('label', null, 'Qual música?'), query),
+    h('button', { className: 'btn primary block', style: { marginBottom: '16px' }, onClick: () => doSearch() }, '🔍 Buscar'),
+    area
+  )
+  root.append(content)
   return root
 }
 

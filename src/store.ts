@@ -45,7 +45,7 @@ class Store {
     return this.songList().filter((s) => normalize(s.title + ' ' + s.artist).includes(q))
   }
 
-  async addSong(data: { title: string; artist: string; tom: string; body: string }): Promise<Song> {
+  async addSong(data: { title: string; artist: string; tom: string; body: string; sourceUrl?: string }): Promise<Song> {
     const now = Date.now()
     const song: Song = {
       id: newId(),
@@ -56,6 +56,7 @@ class Store {
       semitones: 0,
       scrollSeconds: 180,
       notes: '',
+      ...(data.sourceUrl ? { sourceUrl: data.sourceUrl } : {}),
       createdAt: now,
       updatedAt: now,
     }

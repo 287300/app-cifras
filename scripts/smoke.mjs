@@ -145,7 +145,25 @@ try {
   check('importar o próprio backup não duplica (novas: 0)', importMsg.includes('Novas: 0'))
   await page.click('.sheet button:has-text("Ok")')
 
-  // assistente de carga: show importado por esqueleto, cifra entra pelo fluxo guiado
+  // assistente de carga: show importado por esqueleto, cifra entra pela busca no app
+  // (o ajudante do Supabase é simulado aqui; a versão real é testada no ar)
+  const FAKE_FETCHED = {
+    title: 'Natália',
+    artist: 'Legião Urbana',
+    tom: 'Am',
+    body: 'Tom: Am\n\n[Intro] Am  G  F  E\n\nAm            G\nLinha de exemplo um\nF             E\nLinha de exemplo dois\n',
+    sourceUrl: 'https://exemplo.test/natalia',
+    host: 'cifraclub.com.br',
+    weak: false,
+  }
+  await page.route('**/functions/v1/cifra*', (route) => {
+    const url = route.request().url()
+    if (url.includes('op=search')) {
+      route.fulfill({ json: { hits: [{ title: 'Natália · Legião Urbana', url: 'https://exemplo.test/natalia', host: 'cifraclub.com.br' }] } })
+    } else {
+      route.fulfill({ json: FAKE_FETCHED })
+    }
+  })
   await page.setInputFiles('input[type="file"]', new URL('../show-30-08.json', import.meta.url).pathname)
   await page.waitForSelector('.sheet')
   await page.click('.sheet button:has-text("Ok")')
@@ -154,15 +172,24 @@ try {
   await page.waitForSelector('button:has-text("Assistente de carga")')
   check('show com esqueletos oferece o assistente', await page.isVisible('text=faltam 13 cifras'))
   await page.click('button:has-text("Assistente de carga")')
-  await page.waitForSelector('text=Natalia')
-  const FAKE = 'Música: Natalia\nArtista: Legião Urbana\n\nTom: Am\n\n[Intro] Am  G  F  E\n\nAm            G\nLinha de exemplo um\nF             E\nLinha de exemplo dois\n'
+  await page.waitForSelector('.card:has-text("Natália · Legião Urbana")')
+  check('busca no app lista resultados sozinha', true)
+  await page.click('.card:has-text("Natália · Legião Urbana")')
+  await page.waitForSelector('button:has-text("Usar esta")')
+  check('prévia mostra o tom e a fonte', await page.isVisible('text=fonte: cifraclub.com.br'))
+  await page.click('button:has-text("Usar esta")')
+  await page.waitForSelector('text=1 de 13 músicas com cifra')
+  check('salvar pela busca avança para a próxima', await page.isVisible("text=L'Avventura"))
+
+  // caminho manual continua vivo (colar e salvar) com trava de colagem repetida
+  const FAKE = 'Música: LAvventura\nArtista: Legião Urbana\n\nTom: G\n\n[Intro] G  D  C\n\nG            D\nLinha de exemplo um\nC            D\nLinha de exemplo dois\n'
   await page.evaluate((t) => navigator.clipboard.writeText(t), FAKE)
   await page.click('button:has-text("Colar e salvar")')
-  await page.waitForSelector('text=1 de 13 músicas com cifra')
-  check('assistente salva e avança para a próxima', await page.isVisible("text=L'Avventura"))
+  await page.waitForSelector('text=2 de 13 músicas com cifra')
+  check('caminho manual salva e avança', await page.isVisible('text=Soul Parsifal'))
   await page.click('button:has-text("Colar e salvar")')
-  await page.waitForSelector('.banner')
-  check('assistente barra colagem repetida', (await page.textContent('.banner')).includes('mesma cifra'))
+  await page.waitForSelector('.banner:has-text("mesma cifra")')
+  check('assistente barra colagem repetida', true)
   await page.evaluate(() => { location.hash = '#/shows' })
   await page.waitForSelector('.tabbar')
 

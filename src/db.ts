@@ -10,6 +10,7 @@ export interface Song {
   semitones: number
   scrollSeconds: number
   notes: string
+  sourceUrl?: string
   createdAt: number
   updatedAt: number
 }
