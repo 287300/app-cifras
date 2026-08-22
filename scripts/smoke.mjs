@@ -103,6 +103,19 @@ try {
   await page.waitForTimeout(1400)
   const scrolled = await page.evaluate(() => document.querySelector('.reader .content').scrollTop)
   check('rolagem realmente desce a tela (+' + Math.round(scrolled) + 'px)', scrolled > 8)
+
+  // velocidade: dois toques no ＋ mostram o multiplicador e ficam salvos na música
+  await page.click('button[aria-label="Rolagem mais rápida"]')
+  await page.click('button[aria-label="Rolagem mais rápida"]')
+  check('velocidade sobe e aparece no botão', (await page.textContent('.scrollflag')).includes('1,3×'))
+  const savedSeconds = await page.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const songs = await new Promise((res, rej) => { const t = db.transaction('songs', 'readonly'); const r = t.objectStore('songs').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    db.close()
+    return songs[0].scrollSeconds
+  })
+  check('velocidade nova gravada na música (' + savedSeconds + 's)', savedSeconds < 180)
+  await page.click('button[aria-label="Rolagem mais devagar"]')
   await page.click('.scrollflag')
 
   // persistência: recarrega e a música continua

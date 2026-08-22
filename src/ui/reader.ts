@@ -160,27 +160,44 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
       scroller?.toggle()
     })
 
-    // indicador e controle da rolagem
+    // controles da rolagem: liga/pausa e velocidade (− / ＋), salva por música
+    const baseline = entry.song.scrollSeconds || 180
     const flag = h('button', { className: 'scrollflag' }, '▶ rolagem')
-    scroller = new AutoScroll(
-      content,
-      entry.song.scrollSeconds || 180,
-      (playing) => {
-        flag.textContent = playing ? '❚❚ rolando' : '▶ rolagem'
-        flag.classList.toggle('on', playing)
-      },
-      () => {
-        flag.textContent = 'cifra inteira na tela'
-        flag.classList.remove('on')
-        setTimeout(() => {
-          flag.textContent = scroller?.playing ? '❚❚ rolando' : '▶ rolagem'
-        }, 2000)
-      }
-    )
+    const updateFlag = () => {
+      const speedX = baseline / (scroller?.seconds ?? baseline)
+      const extra = Math.abs(speedX - 1) < 0.05 ? '' : ' ' + speedX.toFixed(1).replace('.', ',') + '×'
+      flag.textContent = (scroller?.playing ? '❚❚ rolando' : '▶ rolagem') + extra
+      flag.classList.toggle('on', !!scroller?.playing)
+    }
+    scroller = new AutoScroll(content, baseline, updateFlag, () => {
+      flag.textContent = 'cifra inteira na tela'
+      flag.classList.remove('on')
+      setTimeout(updateFlag, 2000)
+    })
     flag.addEventListener('click', (e) => {
       e.stopPropagation()
       scroller?.toggle()
     })
+    const changeSpeed = (dir: 1 | -1) => {
+      if (!scroller) return
+      const next = Math.max(20, Math.min(900, Math.round(dir > 0 ? scroller.seconds / 1.15 : scroller.seconds * 1.15)))
+      scroller.seconds = next
+      void store.updateSong(song.id, { scrollSeconds: next })
+      const fresh = store.songs.get(song.id)
+      if (fresh) entry.song = fresh
+      updateFlag()
+    }
+    const slower = h('button', { className: 'scrollbtn', 'aria-label': 'Rolagem mais devagar' }, '−')
+    const faster = h('button', { className: 'scrollbtn', 'aria-label': 'Rolagem mais rápida' }, '＋')
+    slower.addEventListener('click', (e) => {
+      e.stopPropagation()
+      changeSpeed(-1)
+    })
+    faster.addEventListener('click', (e) => {
+      e.stopPropagation()
+      changeSpeed(1)
+    })
+    const scrollCtl = h('div', { className: 'scrollctl' }, slower, flag, faster)
 
     // zonas de navegação nas bordas (anterior / próxima)
     const zones: HTMLElement[] = []
@@ -306,7 +323,7 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
       )
     }
 
-    root.append(bar, content, ...zones, flag, foot)
+    root.append(bar, content, ...zones, scrollCtl, foot)
   }
 
   renderCurrent()

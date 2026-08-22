@@ -154,12 +154,20 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 }
 .navzone:active { color: var(--text-dim); }
 .navzone.left { left: 0; } .navzone.right { right: 0; }
-.scrollflag {
+.scrollctl {
   position: absolute; right: 12px; bottom: calc(72px + var(--safe-bottom)); z-index: 5;
+  display: flex; align-items: center; gap: 8px;
+}
+.scrollflag {
   background: rgba(23, 28, 36, 0.9); border: 1px solid var(--border);
-  border-radius: 999px; padding: 8px 14px; color: var(--text-dim); font-size: 13px;
+  border-radius: 999px; padding: 10px 14px; color: var(--text-dim); font-size: 13px; min-height: 44px;
 }
 .scrollflag.on { color: var(--green); border-color: var(--green); }
+.scrollbtn {
+  background: rgba(23, 28, 36, 0.9); border: 1px solid var(--border);
+  border-radius: 999px; min-width: 46px; min-height: 44px; font-size: 20px; color: var(--text);
+}
+.scrollbtn:active { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- folha inferior (acordes etc.) ---------- */
 .sheetwrap { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; justify-content: flex-end; }
