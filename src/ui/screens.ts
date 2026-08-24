@@ -8,6 +8,7 @@ import { transposeKey, parseKey } from '../engine/notes.ts'
 import { fetchCifraFromUrl, searchCifras, type FetchedCifra, type SearchHit } from '../importer.ts'
 import { navigate, type Route } from '../router.ts'
 import { store, type Show, type Song } from '../store.ts'
+import { defaultDeviceName, disableSync, enableSync, onSyncChange, pullNow, syncStatus } from '../sync.ts'
 import { confirmDialog, h, sheet } from './dom.ts'
 import { readerScreen, releaseWakeLock } from './reader.ts'
 
@@ -805,6 +806,119 @@ export function planbScreen(showId: string | null): HTMLElement {
 
 // ---------- mais (backup e informações) ----------
 
+/** Cartão da sincronização entre aparelhos (o "carteiro" das músicas). */
+function syncCard(): HTMLElement {
+  const wrap = h('div', { style: { marginBottom: '24px' } })
+
+  const fmtHora = (t: number) =>
+    new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+  const render = () => {
+    const st = syncStatus()
+    const parts: (HTMLElement | null)[] = [
+      h('h2', { style: { fontSize: '18px', margin: '8px 0' } }, 'Sincronizar entre aparelhos'),
+    ]
+    if (!st.enabled) {
+      const wordInput = h('input', {
+        type: 'text',
+        placeholder: 'Palavra-chave (a mesma em todos os aparelhos)',
+        autocapitalize: 'off',
+        autocomplete: 'off',
+        style: { marginBottom: '10px' },
+      }) as HTMLInputElement
+      const deviceInput = h('input', {
+        type: 'text',
+        value: defaultDeviceName(),
+        placeholder: 'Nome deste aparelho',
+        style: { marginBottom: '10px' },
+      }) as HTMLInputElement
+      const btn = h(
+        'button',
+        {
+          className: 'btn primary block',
+          onClick: async () => {
+            btn.textContent = 'Ativando…'
+            ;(btn as HTMLButtonElement).disabled = true
+            try {
+              await enableSync(wordInput.value, deviceInput.value)
+              alertSheet('Sincronização ligada', 'Digite a mesma palavra-chave nos outros aparelhos e as músicas se encontram sozinhas.')
+            } catch (err) {
+              alertSheet('Não deu certo', err instanceof Error ? err.message : 'Tente de novo com internet.')
+            }
+            render()
+          },
+        },
+        'Ativar sincronização'
+      )
+      parts.push(
+        h(
+          'p',
+          { className: 'hint', style: { marginBottom: '10px' } },
+          'Suas músicas seguem você: cada mudança sobe cifrada para a nuvem e aparece nos outros aparelhos quando abrirem o app com internet. No palco nada muda: tudo continua gravado no aparelho.'
+        ),
+        wordInput,
+        deviceInput,
+        btn
+      )
+    } else {
+      const quando = st.busy
+        ? 'Sincronizando…'
+        : st.error
+          ? 'Falhou: ' + st.error
+          : st.lastSyncAt
+            ? 'Sincronizado às ' + fmtHora(st.lastSyncAt)
+            : 'Aguardando a primeira sincronização'
+      parts.push(
+        h(
+          'p',
+          { className: 'hint', style: st.error && !st.busy ? { marginBottom: '10px', color: 'var(--red)' } : { marginBottom: '10px' } },
+          `Ligada neste aparelho (${st.device}). ${quando}.`
+        ),
+        h(
+          'div',
+          { className: 'row' },
+          h(
+            'button',
+            {
+              className: 'btn',
+              style: { flex: '1' },
+              onClick: () => {
+                void pullNow()
+              },
+            },
+            '↻ Sincronizar agora'
+          ),
+          h(
+            'button',
+            {
+              className: 'btn',
+              style: { flex: '1' },
+              onClick: async () => {
+                if (await confirmDialog('Desligar a sincronização neste aparelho? As músicas daqui continuam intactas.', 'Desligar')) {
+                  await disableSync()
+                  render()
+                }
+              },
+            },
+            'Desligar'
+          )
+        )
+      )
+    }
+    wrap.replaceChildren(...parts.filter((p): p is HTMLElement => p !== null))
+  }
+
+  const un = onSyncChange(() => {
+    if (!wrap.isConnected) {
+      un()
+      return
+    }
+    render()
+  })
+  render()
+  return wrap
+}
+
 export function moreScreen(): HTMLElement {
   const root = h('div', { className: 'screen' })
   root.append(topbar('Mais'))
@@ -852,6 +966,7 @@ export function moreScreen(): HTMLElement {
       ),
       h('button', { className: 'btn', style: { flex: '1' }, onClick: () => fileInput.click() }, '⬆ Importar backup')
     ),
+    syncCard(),
     h('h2', { style: { fontSize: '18px', margin: '8px 0' } }, 'Importar cifras'),
     h('p', { className: 'hint', style: { marginBottom: '10px' } }, 'O botão "Copiar cifra" nos favoritos do navegador copia a cifra de qualquer site já com nome e artista; no app, Colar preenche tudo.'),
     h('button', { className: 'btn block', style: { marginBottom: '14px' }, onClick: () => navigate({ name: 'botao' }) }, 'Instalar o botão "Copiar cifra"'),

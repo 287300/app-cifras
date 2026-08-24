@@ -231,6 +231,81 @@ try {
   await page.evaluate(() => { location.hash = '#/shows' })
   await page.waitForSelector('.tabbar')
 
+  // ---------- sincronização entre aparelhos (nuvem simulada, 1 linha como no Supabase) ----------
+  const cloud = { row: null }
+  const syncMock = (route) => {
+    const body = route.request().postDataJSON()
+    if (body.op === 'pull') {
+      route.fulfill({
+        json: cloud.row
+          ? { payload: cloud.row.payload, updatedAt: cloud.row.updatedAt, device: cloud.row.device }
+          : { empty: true },
+      })
+    } else if (body.op === 'push') {
+      if (cloud.row && Math.abs(cloud.row.updatedAt - (body.baseUpdatedAt || 0)) > 1500) {
+        route.fulfill({
+          status: 409,
+          json: { conflict: true, payload: cloud.row.payload, updatedAt: cloud.row.updatedAt, device: cloud.row.device },
+        })
+      } else {
+        cloud.row = { payload: body.payload, updatedAt: Date.now(), device: body.device }
+        route.fulfill({ json: { ok: true, updatedAt: cloud.row.updatedAt } })
+      }
+    } else {
+      route.fulfill({ status: 400, json: { error: 'op?' } })
+    }
+  }
+  await page.route('**/functions/v1/sync*', syncMock)
+
+  // aparelho A: ligar com a palavra-chave manda a biblioteca para a nuvem
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('input[placeholder^="Palavra-chave"]')
+  await page.fill('input[placeholder^="Palavra-chave"]', 'fumaca-sync-2026')
+  await page.click('button:has-text("Ativar sincronização")')
+  await page.waitForSelector('.sheet:has-text("Sincronização ligada")', { timeout: 8000 })
+  await page.click('.sheetwrap .backdrop')
+  check('SYNC A: ativa e faz o primeiro envio cifrado', cloud.row !== null && cloud.row.payload.includes('.'))
+  check('SYNC A: nada de cifra legível na nuvem', !String(cloud.row.payload).includes('Natália'))
+
+  // aparelho B: outro navegador zerado, mesma palavra: as músicas aparecem sozinhas
+  const ctxB = await browser.newContext({ viewport: { width: 834, height: 1112 } })
+  const pageB = await ctxB.newPage()
+  pageB.on('pageerror', (e) => errors.push('B: ' + String(e)))
+  await pageB.route('**/functions/v1/sync*', syncMock)
+  await pageB.goto(`http://localhost:${PORT}/`)
+  await pageB.waitForSelector('.tabbar', { timeout: 8000 })
+  await pageB.waitForTimeout(2000) // o service worker assume e recarrega a página 1 vez
+  await pageB.waitForSelector('.tabbar', { timeout: 8000 })
+  await pageB.evaluate(() => { location.hash = '#/more' })
+  await pageB.waitForSelector('input[placeholder^="Palavra-chave"]')
+  await pageB.fill('input[placeholder^="Palavra-chave"]', 'fumaca-sync-2026')
+  await pageB.click('button:has-text("Ativar sincronização")')
+  await pageB.waitForSelector('.sheet:has-text("Sincronização ligada")', { timeout: 8000 })
+  await pageB.click('.sheetwrap .backdrop')
+  await pageB.evaluate(() => { location.hash = '#/library' })
+  await pageB.waitForSelector('.card:has-text("Aloha")', { timeout: 8000 })
+  const cardsB = await pageB.evaluate(() => document.querySelectorAll('.card').length)
+  check('SYNC B: aparelho novo recebe a biblioteca inteira (' + cardsB + ' músicas)', cardsB >= 10)
+
+  // B cria uma música; A puxa com "Sincronizar agora" e ela aparece
+  await pageB.click('button[aria-label="Adicionar música"]')
+  await pageB.fill('textarea', 'Música: Vinda Do Ipad\nArtista: Teste\n\n[Intro] G  D  C\nG      D\nLinha exemplo\n')
+  await pageB.click('button:has-text("Salvar música")')
+  await pageB.waitForSelector('.readerbar', { timeout: 5000 })
+  await pageB.waitForTimeout(4600) // debounce do envio automático
+  const subiu = cloud.row && cloud.row.updatedAt
+  check('SYNC B: mudança sobe sozinha depois de salvar', !!subiu)
+
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sincronizar agora")')
+  await page.click('button:has-text("Sincronizar agora")')
+  await page.waitForTimeout(1200)
+  await page.evaluate(() => { location.hash = '#/library' })
+  await page.waitForSelector('.card:has-text("Vinda Do Ipad")', { timeout: 8000 })
+  check('SYNC A: recebe na hora a música criada no outro aparelho', true)
+  await ctxB.close()
+  await page.unroute('**/functions/v1/sync*')
+
   // modo avião: derruba a rede e o app inteiro precisa continuar abrindo
   await page.context().setOffline(true)
   await page.reload()

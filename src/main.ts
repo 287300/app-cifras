@@ -3,6 +3,7 @@
 
 import { currentRoute, navigate, onRouteChange, type Route } from './router.ts'
 import { store } from './store.ts'
+import { initSync } from './sync.ts'
 import { h, clear } from './ui/dom.ts'
 import { addScreen, botaoScreen, buscarScreen, cargaScreen, editScreen, libraryScreen, moreScreen, planbScreen, playerScreen, showEditScreen, showsScreen, songScreen } from './ui/screens.ts'
 
@@ -94,6 +95,7 @@ async function boot(): Promise<void> {
   }
 
   await store.init()
+  void initSync() // o carteiro entre aparelhos (não bloqueia a abertura)
   render(currentRoute())
   onRouteChange(render)
 }

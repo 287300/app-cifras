@@ -19,6 +19,8 @@ declare module 'bun:test' {
     toBeLessThan(n: number): void
     toHaveLength(n: number): void
     toThrow(msg?: string): void
+    toMatch(pattern: RegExp | string): void
+    rejects: Matchers
     not: Matchers
   }
   export function expect(value: unknown): Matchers
