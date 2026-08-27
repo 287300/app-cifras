@@ -33,10 +33,11 @@ function json(data: unknown, status: number, origin: string): Response {
 }
 
 function unescapeJson(s: string): string {
+  // o trecho capturado já vem escapado como JSON: basta reabrir como string
   try {
-    return JSON.parse('"' + s.replace(/"/g, '\\"') + '"') as string
+    return JSON.parse('"' + s + '"') as string
   } catch {
-    return s
+    return s.replace(/\\"/g, '"').replace(/\\\\/g, '\\')
   }
 }
 
