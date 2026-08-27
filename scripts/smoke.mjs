@@ -60,8 +60,10 @@ const ctx = await browser.newContext({ viewport: { width: 834, height: 1112 }, p
 const page = await ctx.newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(String(e)))
+// o YouTube não é alcançável daqui: o player do ensaio falhar no teste é esperado
+const externo = (t) => /ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|youtube/i.test(t)
 page.on('console', (m) => {
-  if (m.type() === 'error') errors.push(m.text())
+  if (m.type() === 'error' && !externo(m.text())) errors.push(m.text())
 })
 
 try {
@@ -232,10 +234,18 @@ try {
   await page.waitForSelector('.tabbar')
 
   // ---------- sincronização entre aparelhos (nuvem simulada, 1 linha como no Supabase) ----------
-  const cloud = { row: null }
+  const cloud = { row: null, pairs: {} }
   const syncMock = (route) => {
     const body = route.request().postDataJSON()
-    if (body.op === 'pull') {
+    if (body.op === 'pair-create') {
+      cloud.pairs[body.pairId] = body.payload
+      route.fulfill({ json: { ok: true, expiresInMin: 10 } })
+    } else if (body.op === 'pair-claim') {
+      const payload = cloud.pairs[body.pairId]
+      delete cloud.pairs[body.pairId]
+      if (payload) route.fulfill({ json: { payload } })
+      else route.fulfill({ status: 404, json: { error: 'código não encontrado ou já usado' } })
+    } else if (body.op === 'pull') {
       route.fulfill({
         json: cloud.row
           ? { payload: cloud.row.payload, updatedAt: cloud.row.updatedAt, device: cloud.row.device }
@@ -257,17 +267,25 @@ try {
   }
   await page.route('**/functions/v1/sync*', syncMock)
 
-  // aparelho A: ligar com a palavra-chave manda a biblioteca para a nuvem
+  // aparelho A: ativa sem digitar senha nenhuma e manda a biblioteca para a nuvem
   await page.evaluate(() => { location.hash = '#/more' })
-  await page.waitForSelector('input[placeholder^="Palavra-chave"]')
-  await page.fill('input[placeholder^="Palavra-chave"]', 'fumaca-sync-2026')
+  await page.waitForSelector('button:has-text("Ativar sincronização")')
+  check('SYNC: não pede mais palavra-chave', (await page.locator('input[placeholder^="Palavra-chave"]').count()) === 0)
   await page.click('button:has-text("Ativar sincronização")')
   await page.waitForSelector('.sheet:has-text("Sincronização ligada")', { timeout: 8000 })
   await page.click('.sheetwrap .backdrop')
-  check('SYNC A: ativa e faz o primeiro envio cifrado', cloud.row !== null && cloud.row.payload.includes('.'))
+  check('SYNC A: ativa sozinha e faz o primeiro envio cifrado', cloud.row !== null && cloud.row.payload.includes('.'))
   check('SYNC A: nada de cifra legível na nuvem', !String(cloud.row.payload).includes('Natália'))
 
-  // aparelho B: outro navegador zerado, mesma palavra: as músicas aparecem sozinhas
+  // A gera o código de 6 números para o outro aparelho
+  await page.click('button:has-text("Conectar outro aparelho")')
+  await page.waitForSelector('.paircode', { timeout: 8000 })
+  await page.waitForFunction(() => /\d{3} \d{3}/.test(document.querySelector('.paircode')?.textContent || ''), { timeout: 8000 })
+  const code = (await page.textContent('.paircode')).replace(/\D/g, '')
+  check('SYNC: código de 6 números gerado (' + code.length + ' dígitos)', code.length === 6)
+  await page.click('.sheetwrap .backdrop')
+
+  // aparelho B: outro navegador zerado, digita o código e entra no mesmo conjunto
   const ctxB = await browser.newContext({ viewport: { width: 834, height: 1112 } })
   const pageB = await ctxB.newPage()
   pageB.on('pageerror', (e) => errors.push('B: ' + String(e)))
@@ -277,10 +295,11 @@ try {
   await pageB.waitForTimeout(2000) // o service worker assume e recarrega a página 1 vez
   await pageB.waitForSelector('.tabbar', { timeout: 8000 })
   await pageB.evaluate(() => { location.hash = '#/more' })
-  await pageB.waitForSelector('input[placeholder^="Palavra-chave"]')
-  await pageB.fill('input[placeholder^="Palavra-chave"]', 'fumaca-sync-2026')
-  await pageB.click('button:has-text("Ativar sincronização")')
-  await pageB.waitForSelector('.sheet:has-text("Sincronização ligada")', { timeout: 8000 })
+  await pageB.waitForSelector('button:has-text("Tenho um código")')
+  await pageB.click('button:has-text("Tenho um código")')
+  await pageB.fill('.sheet input[inputmode="numeric"]', code)
+  await pageB.click('.sheet button:has-text("Conectar")')
+  await pageB.waitForSelector('.sheet:has-text("Aparelhos conectados")', { timeout: 10000 })
   await pageB.click('.sheetwrap .backdrop')
   await pageB.evaluate(() => { location.hash = '#/library' })
   await pageB.waitForSelector('.card:has-text("Aloha")', { timeout: 8000 })
@@ -306,10 +325,77 @@ try {
   await ctxB.close()
   await page.unroute('**/functions/v1/sync*')
 
+  // ---------- ordem do show pelos botões, teclado no palco e vídeo ----------
+  await page.evaluate(() => { location.hash = '#/shows/show3008' })
+  await page.waitForSelector('.setitem')
+  const primeiro = await page.textContent('.setitem >> nth=0 >> .title')
+  const segundo = await page.textContent('.setitem >> nth=1 >> .title')
+  await page.click('.setitem >> nth=1 >> button[aria-label="Subir na ordem"]')
+  await page.waitForTimeout(500)
+  check('ORDEM: botão sobe a música na setlist', (await page.textContent('.setitem >> nth=0 >> .title')) === segundo)
+  await page.click('.setitem >> nth=0 >> button[aria-label="Descer na ordem"]')
+  await page.waitForTimeout(500)
+  check('ORDEM: botão desce e volta ao original', (await page.textContent('.setitem >> nth=0 >> .title')) === primeiro)
+  check('ORDEM: primeira música não pode subir', await page.isDisabled('.setitem >> nth=0 >> button[aria-label="Subir na ordem"]'))
+
+  // teclado e pedal: espaço liga e pausa, setas trocam de música
+  // (numa cifra comprida, que é onde a rolagem tem o que rolar)
+  await page.evaluate(() => { location.hash = '#/add/show3008' })
+  await page.waitForSelector('textarea')
+  await page.fill('textarea', 'Música: Cifra Comprida\nArtista: Teste\n\n' + FIXTURE_LONGA)
+  await page.click('button:has-text("Salvar música")')
+  await page.waitForTimeout(800)
+  await page.click('button[aria-label="Sair"]').catch(() => undefined)
+  await page.evaluate(() => { location.hash = '#/shows/show3008' })
+  await page.waitForSelector('.setitem:has-text("Cifra Comprida")', { timeout: 8000 })
+  const ultima = (await page.locator('.setitem').count()) - 1
+  await page.evaluate((i) => { location.hash = '#/play/show3008/' + i }, ultima)
+  await page.waitForSelector('.readerbar')
+  await page.keyboard.press('Space')
+  await page.waitForTimeout(300)
+  check('TECLADO: espaço liga a rolagem', (await page.textContent('.scrollflag')).includes('rolando'))
+  await page.keyboard.press('Space')
+  await page.waitForTimeout(300)
+  check('TECLADO: espaço pausa a rolagem', !(await page.textContent('.scrollflag')).includes('rolando'))
+  const antes = await page.textContent('.readerbar .t .meta')
+  await page.keyboard.press('ArrowLeft')
+  await page.waitForTimeout(400)
+  check('PEDAL: seta esquerda volta uma música', (await page.textContent('.readerbar .t .meta')) !== antes)
+  await page.keyboard.press('ArrowRight')
+  await page.waitForTimeout(400)
+  check('PEDAL: seta direita avança de volta', (await page.textContent('.readerbar .t .meta')) === antes)
+  await page.keyboard.press('ArrowUp')
+  await page.waitForTimeout(300)
+  check('TECLADO: seta para cima acelera a rolagem', (await page.textContent('.scrollflag')).includes('×'))
+
+  // vídeo do YouTube ao lado da cifra (busca simulada)
+  await page.route('**/functions/v1/video*', (route) => {
+    route.fulfill({ json: { hits: [{ id: 'dQw4w9WgXcQ', title: 'Clipe oficial', channel: 'Banda', length: '3:56' }] } })
+  })
+  await page.click('button[aria-label="Vídeo da música"]')
+  await page.waitForSelector('.sheet .card:has-text("Clipe oficial")', { timeout: 8000 })
+  await page.click('.sheet .card:has-text("Clipe oficial")')
+  await page.waitForSelector('.videopane iframe', { timeout: 8000 })
+  const src = await page.getAttribute('.videopane iframe', 'src')
+  check('VÍDEO: player abre ao lado da cifra', src.includes('dQw4w9WgXcQ'))
+  check('VÍDEO: a cifra continua na tela junto com o vídeo', await page.isVisible('.reader.withvideo .content .cifra'))
+  await page.click('button:has-text("Fechar vídeo")')
+  await page.waitForTimeout(300)
+  check('VÍDEO: fecha e a cifra volta a ocupar a tela', (await page.locator('.videopane').count()) === 0)
+  await page.click('button[aria-label="Vídeo da música"]')
+  await page.waitForSelector('.videopane iframe', { timeout: 8000 })
+  check('VÍDEO: na segunda vez abre direto o vídeo já escolhido', true)
+  await page.click('button:has-text("Fechar vídeo")')
+  await page.unroute('**/functions/v1/video*')
+  await page.click('button[aria-label="Sair"]')
+  await page.waitForSelector('button:has-text("Tocar o show")')
+
   // modo avião: derruba a rede e o app inteiro precisa continuar abrindo
+  await page.evaluate(() => { location.hash = '#/shows' })
+  await page.waitForSelector('.tabbar')
   await page.context().setOffline(true)
-  await page.reload()
-  await page.waitForSelector('.readerbar, .tabbar', { timeout: 8000 })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.readerbar, .tabbar, .topbar', { timeout: 12000 })
   check('OFFLINE: app abre em modo avião (service worker servindo tudo)', true)
   await page.click('button[aria-label="Sair"]').catch(() => undefined)
   await page.context().setOffline(false)

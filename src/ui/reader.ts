@@ -3,6 +3,7 @@
 // lista de acordes e navegação entre músicas do show.
 
 import { store, type Song } from '../store.ts'
+import { searchVideos, videoIdFromUrl } from '../importer.ts'
 import { confirmDialog, h, sheet } from './dom.ts'
 import { renderCifra } from './cifraView.ts'
 import { openChordSheet } from './chordSheet.ts'
@@ -107,13 +108,144 @@ class AutoScroll {
   }
 }
 
+// ---------- clipe para ensaiar junto ----------
+
+/** Player do YouTube embutido, 16 por 9, com os controles do próprio player. */
+function videoFrame(id: string): HTMLElement {
+  const wrap = h('div', { className: 'videoframe' })
+  const frame = h('iframe', {
+    src: `https://www.youtube-nocookie.com/embed/${id}?rel=0&playsinline=1&autoplay=1`,
+    title: 'Clipe da música',
+    allow: 'accelerometer; autoplay; encrypted-media; picture-in-picture',
+    allowFullscreen: true,
+    frameBorder: '0',
+  })
+  wrap.append(frame)
+  return wrap
+}
+
+/** Folha de escolha do clipe: busca sozinha e aceita link colado. */
+function chooseVideoSheet(song: Song, onPick: (id: string) => void): void {
+  const list = h('div', { className: 'list', style: { marginTop: '12px' } })
+  const status = h('p', { className: 'hint' }, 'Procurando o clipe…')
+  const urlInput = h('input', {
+    type: 'text',
+    placeholder: 'ou cole o link do YouTube',
+    style: { marginTop: '14px' },
+  }) as HTMLInputElement
+  const close = sheet(
+    h('h2', null, 'Vídeo de ' + song.title),
+    status,
+    list,
+    urlInput,
+    h(
+      'button',
+      {
+        className: 'btn block',
+        style: { marginTop: '10px' },
+        onClick: () => {
+          const id = videoIdFromUrl(urlInput.value)
+          if (!id) {
+            status.textContent = 'Esse link não parece do YouTube.'
+            return
+          }
+          close()
+          onPick(id)
+        },
+      },
+      'Usar este link'
+    )
+  )
+
+  void (async () => {
+    try {
+      const hits = await searchVideos((song.artist + ' ' + song.title).trim() || song.title)
+      if (hits.length === 0) {
+        status.textContent = 'Nada encontrado. Cole o link do YouTube abaixo.'
+        return
+      }
+      status.textContent = 'Toque no vídeo que você quer ensaiar junto:'
+      for (const hit of hits) {
+        list.append(
+          h(
+            'button',
+            {
+              className: 'card',
+              onClick: () => {
+                close()
+                onPick(hit.id)
+              },
+            },
+            h(
+              'div',
+              { className: 'grow' },
+              h('div', { className: 'title' }, hit.title),
+              h('div', { className: 'meta' }, [hit.channel, hit.length].filter(Boolean).join(' · '))
+            )
+          )
+        )
+      }
+    } catch (err) {
+      status.textContent = err instanceof Error ? err.message : 'Não deu para buscar agora.'
+    }
+  })()
+}
+
 // ---------- leitura ----------
 
 export function readerScreen(opts: ReaderOptions): HTMLElement {
   const root = h('div', { className: 'screen reader' })
   let scroller: AutoScroll | null = null
+  // ligações para o teclado e o pedal de virar página (preenchidas a cada música)
+  let goRef: (delta: number) => void = () => undefined
+  let speedRef: (dir: 1 | -1) => void = () => undefined
+  let videoOpen = false // o painel do clipe segue aberto ao trocar de música
 
   void acquireWakeLock()
+
+  // Teclado e pedal Bluetooth: espaço liga e pausa a rolagem, setas trocam de
+  // música e as setas de cima e de baixo mudam a velocidade. Os pedais de
+  // virar página mandam justamente essas teclas.
+  const onKey = (e: KeyboardEvent) => {
+    if (!root.isConnected) {
+      document.removeEventListener('keydown', onKey)
+      return
+    }
+    const target = e.target as HTMLElement | null
+    if (target && target.closest('input, textarea, select, [contenteditable="true"]')) return
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    switch (e.key) {
+      case ' ':
+      case 'Spacebar':
+      case 'Enter':
+        e.preventDefault()
+        scroller?.toggle()
+        break
+      case 'ArrowRight':
+      case 'PageDown':
+        e.preventDefault()
+        goRef(1)
+        break
+      case 'ArrowLeft':
+      case 'PageUp':
+        e.preventDefault()
+        goRef(-1)
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        speedRef(1)
+        break
+      case 'ArrowDown':
+        e.preventDefault()
+        speedRef(-1)
+        break
+      case 'Escape':
+        e.preventDefault()
+        opts.onExit()
+        break
+    }
+  }
+  document.addEventListener('keydown', onKey)
 
   const renderCurrent = () => {
     scroller?.stop()
@@ -134,11 +266,42 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
       h('div', { className: 'title' }, song.title),
       h('div', { className: 'meta' }, opts.subtitle ? opts.subtitle(opts.index) : song.artist || ' ')
     )
+    // botão do clipe: abre o vídeo ao lado da cifra para ensaiar junto
+    const videoBtn = h(
+      'button',
+      {
+        className: 'iconbtn' + (videoOpen ? ' on' : ''),
+        'aria-label': videoOpen ? 'Fechar o vídeo' : 'Vídeo da música',
+        onClick: () => {
+          if (videoOpen) {
+            videoOpen = false
+            renderCurrent()
+            return
+          }
+          const saved = entry.song.videoId
+          if (saved) {
+            videoOpen = true
+            renderCurrent()
+            return
+          }
+          chooseVideoSheet(entry.song, (id) => {
+            void store.updateSong(song.id, { videoId: id }).then(() => {
+              entry.song = store.songs.get(song.id) ?? entry.song
+              videoOpen = true
+              renderCurrent()
+            })
+          })
+        },
+      },
+      '🎬'
+    )
+
     const bar = h(
       'div',
       { className: 'readerbar' },
       h('button', { className: 'iconbtn', 'aria-label': 'Sair', onClick: () => opts.onExit() }, '✕'),
       title,
+      videoBtn,
       h('button', { className: 'iconbtn', 'aria-label': 'Descer meio tom', onClick: () => changeTone(-1) }, '♭'),
       tomChip,
       h('button', { className: 'iconbtn', 'aria-label': 'Subir meio tom', onClick: () => changeTone(1) }, '♯'),
@@ -187,6 +350,7 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
       if (fresh) entry.song = fresh
       updateFlag()
     }
+    speedRef = changeSpeed
     const slower = h('button', { className: 'scrollbtn', 'aria-label': 'Rolagem mais devagar' }, '−')
     const faster = h('button', { className: 'scrollbtn', 'aria-label': 'Rolagem mais rápida' }, '＋')
     slower.addEventListener('click', (e) => {
@@ -222,6 +386,7 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
       opts.onIndex(next)
       renderCurrent()
     }
+    goRef = go
 
     // rodapé: posição no show, fonte e acordes
     // botão explícito de troca de música no palco: "› próxima" com o nome dela
@@ -358,7 +523,45 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
       )
     }
 
-    root.append(bar, content, ...zones, scrollCtl, foot)
+    // painel do clipe (só no ensaio; no palco fica desligado e nem carrega)
+    root.classList.toggle('withvideo', videoOpen && !!entry.song.videoId)
+    const videoPane = videoOpen && entry.song.videoId ? h('div', { className: 'videopane' }) : null
+    if (videoPane && entry.song.videoId) {
+      videoPane.append(
+        videoFrame(entry.song.videoId),
+        h(
+          'div',
+          { className: 'videoacts' },
+          h(
+            'button',
+            {
+              className: 'btn small',
+              onClick: () =>
+                chooseVideoSheet(entry.song, (id) => {
+                  void store.updateSong(song.id, { videoId: id }).then(() => {
+                    entry.song = store.songs.get(song.id) ?? entry.song
+                    renderCurrent()
+                  })
+                }),
+            },
+            'Trocar vídeo'
+          ),
+          h(
+            'button',
+            {
+              className: 'btn small',
+              onClick: () => {
+                videoOpen = false
+                renderCurrent()
+              },
+            },
+            'Fechar vídeo'
+          )
+        )
+      )
+    }
+
+    root.append(bar, ...(videoPane ? [videoPane] : []), content, ...zones, scrollCtl, foot)
   }
 
   renderCurrent()

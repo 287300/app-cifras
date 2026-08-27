@@ -10,7 +10,17 @@
 
 import { db } from './db.ts'
 import { store } from './store.ts'
-import { contentHash, decryptText, deriveSync, encryptText, importRawKey } from './engine/syncCore.ts'
+import {
+  contentHash,
+  decryptText,
+  deriveFromSecret,
+  encryptText,
+  importRawKey,
+  keyFromCode,
+  newPairCode,
+  pairIdFromCode,
+  randomSecret,
+} from './engine/syncCore.ts'
 
 const FN = 'https://sokdnapkjlmnfqjpjulz.supabase.co/functions/v1/sync'
 const KEY =
@@ -173,19 +183,15 @@ function schedulePush(): void {
   }, 4000)
 }
 
-/** Liga a sincronização neste aparelho com a palavra-chave do Eder. */
-export async function enableSync(word: string, device: string): Promise<void> {
-  if (word.trim().length < 4) throw new Error('Use uma palavra-chave com pelo menos 4 letras.')
-  const derived = await deriveSync(word)
-  cryptoKey = await importRawKey(derived.rawKey)
-  kv = {
-    enabled: true,
-    id: derived.id,
-    rawKey: derived.rawKey,
-    device: device.trim() || 'Aparelho',
-    lastSeen: 0,
-    lastHash: '',
-  }
+/** Liga a sincronização sozinha: o app sorteia o segredo, sem senha nenhuma. */
+export async function enableSync(device: string): Promise<void> {
+  const derived = await deriveFromSecret(randomSecret())
+  await activate(derived.id, derived.rawKey, device)
+}
+
+async function activate(id: string, rawKey: string, device: string): Promise<void> {
+  cryptoKey = await importRawKey(rawKey)
+  kv = { enabled: true, id, rawKey, device: device.trim() || 'Aparelho', lastSeen: 0, lastHash: '' }
   await saveKv()
   await pullNow() // 1º passo é sempre olhar a nuvem; o envio vem em seguida
   if (lastError) {
@@ -194,6 +200,40 @@ export async function enableSync(word: string, device: string): Promise<void> {
     throw new Error(msg)
   }
   notify()
+}
+
+/**
+ * Gera o código de 6 dígitos que liga outro aparelho a este conjunto.
+ * O segredo viaja embrulhado pelo próprio código e o servidor guarda por
+ * 10 minutos, para um único resgate.
+ */
+export async function createPairCode(): Promise<string> {
+  if (!kv?.enabled) throw new Error('Ligue a sincronização neste aparelho primeiro.')
+  if (!navigator.onLine) throw new Error('Precisa de internet para gerar o código.')
+  const code = newPairCode()
+  const wrapped = await encryptText(await keyFromCode(code), JSON.stringify({ id: kv.id, rawKey: kv.rawKey }))
+  const res = await call({ op: 'pair-create', pairId: await pairIdFromCode(code), payload: wrapped })
+  const data = (await res.json()) as { ok?: boolean; error?: string }
+  if (!res.ok || !data.ok) throw new Error(data.error || 'não deu para gerar o código')
+  return code
+}
+
+/** Usa o código mostrado no outro aparelho e entra no mesmo conjunto. */
+export async function claimPairCode(code: string, device: string): Promise<void> {
+  const digits = code.replace(/\D/g, '')
+  if (digits.length !== 6) throw new Error('O código tem 6 números.')
+  if (!navigator.onLine) throw new Error('Precisa de internet para usar o código.')
+  const res = await call({ op: 'pair-claim', pairId: await pairIdFromCode(digits) })
+  const data = (await res.json()) as { payload?: string; error?: string }
+  if (!res.ok || !data.payload) throw new Error(data.error || 'código inválido')
+  let parsed: { id?: string; rawKey?: string }
+  try {
+    parsed = JSON.parse(await decryptText(await keyFromCode(digits), data.payload)) as { id?: string; rawKey?: string }
+  } catch {
+    throw new Error('Código errado. Confira os 6 números no outro aparelho.')
+  }
+  if (!parsed.id || !parsed.rawKey) throw new Error('Código inválido.')
+  await activate(parsed.id, parsed.rawKey, device)
 }
 
 /** Desliga neste aparelho (não mexe na nuvem nem nas músicas locais). */

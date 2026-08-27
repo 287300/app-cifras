@@ -11,6 +11,7 @@ export interface Song {
   scrollSeconds: number
   notes: string
   sourceUrl?: string
+  videoId?: string // clipe do YouTube escolhido para ensaiar junto
   createdAt: number
   updatedAt: number
 }

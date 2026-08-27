@@ -169,6 +169,34 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 }
 .scrollbtn:active { border-color: var(--accent); color: var(--accent); }
 
+/* ---------- clipe ao lado da cifra (ensaio) ---------- */
+.readerbar .iconbtn.on { color: var(--accent); }
+.videopane { display: flex; flex-direction: column; gap: 8px; padding: 8px; min-height: 0; background: var(--bg-raised); }
+.videoframe { position: relative; width: 100%; padding-top: 56.25%; border-radius: 12px; overflow: hidden; background: #000; }
+.videoframe iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.videoacts { display: flex; gap: 8px; }
+.videoacts .btn { flex: 1; }
+
+/* deitado: vídeo à esquerda, cifra à direita; em pé: vídeo em cima */
+.reader.withvideo {
+  display: grid;
+  grid-template-areas: "bar bar" "video cifra" "foot foot";
+  grid-template-columns: minmax(260px, 38%) 1fr;
+  grid-template-rows: auto 1fr auto;
+}
+.reader.withvideo .readerbar { grid-area: bar; }
+.reader.withvideo .videopane { grid-area: video; overflow-y: auto; border-right: 1px solid var(--border); }
+.reader.withvideo .content { grid-area: cifra; }
+.reader.withvideo .playerfoot { grid-area: foot; }
+@media (orientation: portrait) {
+  .reader.withvideo {
+    grid-template-areas: "bar" "video" "cifra" "foot";
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr auto;
+  }
+  .reader.withvideo .videopane { border-right: none; border-bottom: 1px solid var(--border); overflow: visible; }
+}
+
 /* botão de próxima música no rodapé do palco */
 .playerfoot .nextbtn { flex: 1; min-width: 0; min-height: 48px; justify-content: flex-start; padding: 0 14px; }
 .playerfoot .nextbtn .nextlabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -204,6 +232,8 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 .setitem .handle { color: var(--text-dim); font-size: 20px; padding: 8px; cursor: grab; touch-action: none; }
 .setitem.dragging { opacity: 0.6; border-color: var(--accent); }
 .setitem .pos { color: var(--text-dim); font-family: var(--mono); width: 26px; text-align: right; flex: none; }
+.setitem .ordbtn { min-width: 40px; font-size: 19px; color: var(--text-dim); }
+.setitem .ordbtn:active { color: var(--accent); }
 
 .banner {
   border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-size: 15px; line-height: 1.45;
@@ -211,6 +241,13 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 }
 .banner.ok { background: rgba(87, 211, 140, 0.1); border-color: var(--green); }
 .hint { color: var(--text-dim); font-size: 14px; line-height: 1.5; }
+
+/* código de pareamento entre aparelhos */
+.paircode {
+  font-family: var(--mono); font-size: 42px; font-weight: 700; letter-spacing: 6px;
+  text-align: center; color: var(--accent); background: var(--bg); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px 10px; margin: 6px 0 12px; user-select: all; -webkit-user-select: all;
+}
 
 /* ---------- diálogo de confirmação ---------- */
 .confirmbox { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; }

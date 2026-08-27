@@ -5,6 +5,8 @@
 //
 //   POST {op:'pull', id}                                → {empty} ou {payload, updatedAt, device}
 //   POST {op:'push', id, payload, device, baseUpdatedAt} → {ok, updatedAt} ou 409 {conflict, ...}
+//   POST {op:'pair-create', pairId, payload}            → {ok}   (vale 10 minutos)
+//   POST {op:'pair-claim', pairId}                      → {payload} e apaga (uso único)
 //
 // baseUpdatedAt é a versão da nuvem que o aparelho viu por último: se a nuvem
 // mudou nesse meio tempo, devolvemos 409 com o conteúdo atual e o aparelho
@@ -65,11 +67,50 @@ Deno.serve(async (req: Request) => {
   if (origin && !ALLOWED_ORIGINS.has(origin)) return json({ error: 'origem não autorizada' }, 403, origin)
   if (req.method !== 'POST') return json({ error: 'somente POST' }, 405, origin)
 
-  let body: { op?: string; id?: string; payload?: string; device?: string; baseUpdatedAt?: number }
+  let body: { op?: string; id?: string; pairId?: string; payload?: string; device?: string; baseUpdatedAt?: number }
   try {
     body = await req.json()
   } catch {
     return json({ error: 'corpo inválido' }, 400, origin)
+  }
+
+  const PAIR = BASE + '/rest/v1/pair_codes'
+  const PAIR_TTL_MIN = 10
+
+  // ---------- pareamento por código de 6 dígitos ----------
+  if (body.op === 'pair-create' || body.op === 'pair-claim') {
+    const pairId = body.pairId ?? ''
+    if (!/^[0-9a-f]{64}$/.test(pairId)) return json({ error: 'código inválido' }, 400, origin)
+    const limite = new Date(Date.now() - PAIR_TTL_MIN * 60_000).toISOString()
+    try {
+      // limpeza dos códigos vencidos a cada chamada
+      await fetch(`${PAIR}?created_at=lt.${limite}`, { method: 'DELETE', headers: HEADERS })
+
+      if (body.op === 'pair-create') {
+        const payload = body.payload ?? ''
+        if (!payload || payload.length > 20_000) return json({ error: 'payload inválido' }, 400, origin)
+        const res = await fetch(PAIR, {
+          method: 'POST',
+          headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify([{ id: pairId, payload, created_at: new Date().toISOString() }]),
+        })
+        if (!res.ok) throw new Error('banco respondeu ' + res.status)
+        return json({ ok: true, expiresInMin: PAIR_TTL_MIN }, 200, origin)
+      }
+
+      const res = await fetch(`${PAIR}?id=eq.${pairId}&select=payload,created_at`, { headers: HEADERS })
+      if (!res.ok) throw new Error('banco respondeu ' + res.status)
+      const rows = (await res.json()) as Array<{ payload: string; created_at: string }>
+      const row = rows[0]
+      if (!row) return json({ error: 'código não encontrado ou já usado' }, 404, origin)
+      await fetch(`${PAIR}?id=eq.${pairId}`, { method: 'DELETE', headers: HEADERS }) // uso único
+      if (Date.parse(row.created_at) < Date.now() - PAIR_TTL_MIN * 60_000) {
+        return json({ error: 'código expirado' }, 410, origin)
+      }
+      return json({ payload: row.payload }, 200, origin)
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : 'falhou' }, 502, origin)
+    }
   }
 
   const id = body.id ?? ''

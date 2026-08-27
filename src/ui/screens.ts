@@ -8,7 +8,7 @@ import { transposeKey, parseKey } from '../engine/notes.ts'
 import { fetchCifraFromUrl, searchCifras, type FetchedCifra, type SearchHit } from '../importer.ts'
 import { navigate, type Route } from '../router.ts'
 import { store, type Show, type Song } from '../store.ts'
-import { defaultDeviceName, disableSync, enableSync, onSyncChange, pullNow, syncStatus } from '../sync.ts'
+import { claimPairCode, createPairCode, defaultDeviceName, disableSync, enableSync, onSyncChange, pullNow, syncStatus } from '../sync.ts'
 import { confirmDialog, h, sheet } from './dom.ts'
 import { readerScreen, releaseWakeLock } from './reader.ts'
 
@@ -271,6 +271,44 @@ export function showEditScreen(id: string): HTMLElement {
           h('div', { className: 'meta' }, song.artist || ' ')
         ),
         tomBadge,
+        // subir e descer na ordem do show: arrastar continua valendo, mas no
+        // iPad dois toques secos são bem mais confiáveis que arrastar
+        h(
+          'button',
+          {
+            className: 'iconbtn ordbtn',
+            'aria-label': 'Subir na ordem',
+            disabled: idx === 0,
+            style: idx === 0 ? { opacity: '0.25' } : null,
+            onClick: async (e: Event) => {
+              e.stopPropagation()
+              if (idx === 0) return
+              const items = [...show.items]
+              ;[items[idx - 1], items[idx]] = [items[idx]!, items[idx - 1]!]
+              await store.updateShow(show.id, { items })
+              rerender()
+            },
+          },
+          '↑'
+        ),
+        h(
+          'button',
+          {
+            className: 'iconbtn ordbtn',
+            'aria-label': 'Descer na ordem',
+            disabled: idx === show.items.length - 1,
+            style: idx === show.items.length - 1 ? { opacity: '0.25' } : null,
+            onClick: async (e: Event) => {
+              e.stopPropagation()
+              if (idx === show.items.length - 1) return
+              const items = [...show.items]
+              ;[items[idx + 1], items[idx]] = [items[idx]!, items[idx + 1]!]
+              await store.updateShow(show.id, { items })
+              rerender()
+            },
+          },
+          '↓'
+        ),
         h(
           'button',
           {
@@ -806,6 +844,68 @@ export function planbScreen(showId: string | null): HTMLElement {
 
 // ---------- mais (backup e informações) ----------
 
+/** Mostra o código de 6 números para ligar outro aparelho a este conjunto. */
+function pairSheet(): void {
+  const big = h('div', { className: 'paircode' }, '······')
+  const hint = h('p', { className: 'hint' }, 'Gerando o código…')
+  sheet(
+    h('h2', null, 'Conectar outro aparelho'),
+    big,
+    hint,
+    h(
+      'p',
+      { className: 'hint', style: { marginTop: '10px' } },
+      'No outro aparelho: abra o app, vá em Mais, toque em "Tenho um código de outro aparelho" e digite estes números.'
+    )
+  )
+  void (async () => {
+    try {
+      const code = await createPairCode()
+      big.textContent = code.slice(0, 3) + ' ' + code.slice(3)
+      hint.textContent = 'Vale por 10 minutos e serve para um aparelho.'
+    } catch (err) {
+      big.textContent = '······'
+      hint.textContent = err instanceof Error ? err.message : 'Não deu para gerar agora.'
+    }
+  })()
+}
+
+/** Recebe o código do outro aparelho e entra no mesmo conjunto. */
+function claimSheet(deviceName: string, onDone: () => void): void {
+  const input = h('input', {
+    type: 'text',
+    inputMode: 'numeric',
+    autocomplete: 'one-time-code',
+    placeholder: '000000',
+    style: { fontSize: '28px', textAlign: 'center', letterSpacing: '6px', fontFamily: 'var(--mono)' },
+  }) as HTMLInputElement
+  const status = h('p', { className: 'hint', style: { marginTop: '10px' } }, 'Digite os 6 números que aparecem no outro aparelho.')
+  const btn = h(
+    'button',
+    {
+      className: 'btn primary block',
+      style: { marginTop: '12px' },
+      onClick: async () => {
+        btn.textContent = 'Conectando…'
+        ;(btn as HTMLButtonElement).disabled = true
+        try {
+          await claimPairCode(input.value, deviceName)
+          close()
+          alertSheet('Aparelhos conectados', 'As músicas do outro aparelho já estão chegando aqui.')
+          onDone()
+        } catch (err) {
+          status.textContent = err instanceof Error ? err.message : 'Não deu certo.'
+          btn.textContent = 'Conectar'
+          ;(btn as HTMLButtonElement).disabled = false
+        }
+      },
+    },
+    'Conectar'
+  )
+  const close = sheet(h('h2', null, 'Tenho um código'), input, status, btn)
+  setTimeout(() => input.focus(), 100)
+}
+
 /** Cartão da sincronização entre aparelhos (o "carteiro" das músicas). */
 function syncCard(): HTMLElement {
   const wrap = h('div', { style: { marginBottom: '24px' } })
@@ -819,13 +919,6 @@ function syncCard(): HTMLElement {
       h('h2', { style: { fontSize: '18px', margin: '8px 0' } }, 'Sincronizar entre aparelhos'),
     ]
     if (!st.enabled) {
-      const wordInput = h('input', {
-        type: 'text',
-        placeholder: 'Palavra-chave (a mesma em todos os aparelhos)',
-        autocapitalize: 'off',
-        autocomplete: 'off',
-        style: { marginBottom: '10px' },
-      }) as HTMLInputElement
       const deviceInput = h('input', {
         type: 'text',
         value: defaultDeviceName(),
@@ -840,8 +933,8 @@ function syncCard(): HTMLElement {
             btn.textContent = 'Ativando…'
             ;(btn as HTMLButtonElement).disabled = true
             try {
-              await enableSync(wordInput.value, deviceInput.value)
-              alertSheet('Sincronização ligada', 'Digite a mesma palavra-chave nos outros aparelhos e as músicas se encontram sozinhas.')
+              await enableSync(deviceInput.value)
+              alertSheet('Sincronização ligada', 'Nos outros aparelhos, toque em "Tenho um código" e use o código que aparece aqui.')
             } catch (err) {
               alertSheet('Não deu certo', err instanceof Error ? err.message : 'Tente de novo com internet.')
             }
@@ -850,15 +943,24 @@ function syncCard(): HTMLElement {
         },
         'Ativar sincronização'
       )
+      const claimBtn = h(
+        'button',
+        {
+          className: 'btn block',
+          style: { marginTop: '10px' },
+          onClick: () => claimSheet(deviceInput.value, render),
+        },
+        'Tenho um código de outro aparelho'
+      )
       parts.push(
         h(
           'p',
           { className: 'hint', style: { marginBottom: '10px' } },
-          'Suas músicas seguem você: cada mudança sobe cifrada para a nuvem e aparece nos outros aparelhos quando abrirem o app com internet. No palco nada muda: tudo continua gravado no aparelho.'
+          'Suas músicas seguem você: cada mudança sobe cifrada e aparece nos outros aparelhos quando abrirem o app com internet. Sem senha para inventar: o app cuida disso sozinho. No palco nada muda, tudo continua gravado no aparelho.'
         ),
-        wordInput,
         deviceInput,
-        btn
+        btn,
+        claimBtn
       )
     } else {
       const quando = st.busy
@@ -873,6 +975,15 @@ function syncCard(): HTMLElement {
           'p',
           { className: 'hint', style: st.error && !st.busy ? { marginBottom: '10px', color: 'var(--red)' } : { marginBottom: '10px' } },
           `Ligada neste aparelho (${st.device}). ${quando}.`
+        ),
+        h(
+          'button',
+          {
+            className: 'btn primary block',
+            style: { marginBottom: '10px' },
+            onClick: () => pairSheet(),
+          },
+          '＋ Conectar outro aparelho'
         ),
         h(
           'div',

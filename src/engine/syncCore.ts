@@ -82,6 +82,48 @@ export async function decryptText(key: CryptoKey, packed: string): Promise<strin
   return td.decode(plain)
 }
 
+// ---------- sem palavra-chave: segredo sorteado pelo próprio app ----------
+
+/** Sorteia o segredo deste conjunto de aparelhos (256 bits). */
+export function randomSecret(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(new ArrayBuffer(32)))
+  return toB64(bytes.buffer)
+}
+
+/** Endereço na nuvem e chave de cifragem a partir do segredo sorteado. */
+export async function deriveFromSecret(secret: string): Promise<DerivedSync> {
+  const idBits = await crypto.subtle.digest('SHA-256', te.encode(secret + '|id'))
+  const keyBits = await crypto.subtle.digest('SHA-256', te.encode(secret + '|enc'))
+  const key = await crypto.subtle.importKey('raw', keyBits, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt'])
+  return { id: toHex(idBits), rawKey: toB64(await crypto.subtle.exportKey('raw', key)) }
+}
+
+/** Código de pareamento de 6 dígitos, fácil de ler em voz alta e digitar. */
+export function newPairCode(): string {
+  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000
+  return String(n).padStart(6, '0')
+}
+
+/** Endereço temporário do código na nuvem (o código em si nunca é enviado). */
+export async function pairIdFromCode(code: string): Promise<string> {
+  return toHex(await crypto.subtle.digest('SHA-256', te.encode('pair|' + code.replace(/\D/g, ''))))
+}
+
+/**
+ * Chave que embrulha o segredo durante o pareamento. Como o código tem só 6
+ * dígitos, aqui vale o PBKDF2 pesado: sem ele, adivinhar seria barato.
+ */
+export async function keyFromCode(code: string): Promise<CryptoKey> {
+  const material = await crypto.subtle.importKey('raw', te.encode(code.replace(/\D/g, '')), 'PBKDF2', false, ['deriveKey'])
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: te.encode(SALT + '|pair'), iterations: 250_000, hash: 'SHA-256' },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  )
+}
+
 /** Hash curto do conteúdo local, para pular envios idênticos. */
 export async function contentHash(text: string): Promise<string> {
   const h = await crypto.subtle.digest('SHA-256', te.encode(text))

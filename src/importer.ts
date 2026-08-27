@@ -46,3 +46,39 @@ export async function searchCifras(q: string): Promise<SearchHit[]> {
 export async function fetchCifraFromUrl(url: string): Promise<FetchedCifra> {
   return await call<FetchedCifra>('?op=fetch&url=' + encodeURIComponent(url))
 }
+
+// ---------- clipe para ensaiar junto ----------
+
+export interface VideoHit {
+  id: string
+  title: string
+  channel: string
+  length: string
+}
+
+const FN_VIDEO = 'https://sokdnapkjlmnfqjpjulz.supabase.co/functions/v1/video'
+
+/** Procura o clipe no YouTube pelo nome da música e do artista. */
+export async function searchVideos(q: string): Promise<VideoHit[]> {
+  if (!navigator.onLine) throw new Error('O vídeo precisa de internet. No palco, a cifra continua funcionando sozinha.')
+  let res: Response
+  try {
+    res = await fetch(FN_VIDEO + '?q=' + encodeURIComponent(q.trim()), { headers: HEADERS })
+  } catch {
+    throw new Error('Não consegui falar com o buscador de vídeos. Confira o sinal.')
+  }
+  const data = (await res.json().catch(() => ({}))) as { hits?: VideoHit[]; error?: string }
+  if (!res.ok || data.error) throw new Error(data.error || 'O buscador respondeu com erro ' + res.status)
+  return data.hits ?? []
+}
+
+/** Aceita link do YouTube em qualquer formato e devolve só o identificador. */
+export function videoIdFromUrl(raw: string): string | null {
+  const s = raw.trim()
+  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s
+  const m =
+    /[?&]v=([A-Za-z0-9_-]{11})/.exec(s) ??
+    /youtu\.be\/([A-Za-z0-9_-]{11})/.exec(s) ??
+    /youtube\.com\/(?:embed|shorts|live)\/([A-Za-z0-9_-]{11})/.exec(s)
+  return m ? m[1] : null
+}
