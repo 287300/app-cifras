@@ -383,6 +383,40 @@ try {
   check('ORDEM: botão desce e volta ao original', (await page.textContent('.setitem >> nth=0 >> .title')) === primeiro)
   check('ORDEM: primeira música não pode subir', await page.isDisabled('.setitem >> nth=0 >> button[aria-label="Subir na ordem"]'))
 
+  // ARRASTO: segurar a música e levar até a terceira posição
+  const nomes = () => page.locator('.setitem .title').allTextContents()
+  const antesDoArrasto = await nomes()
+  const linha0 = await page.locator('.setitem').nth(0).boundingBox()
+  const linha2 = await page.locator('.setitem').nth(2).boundingBox()
+  const xPega = linha0.x + 120 // sobre o nome da música, longe dos botões ↑ ↓ −
+  await page.mouse.move(xPega, linha0.y + linha0.height / 2)
+  await page.mouse.down()
+  await page.waitForTimeout(250) // ainda não deu o tempo de segurar
+  check('ARRASTO: antes de segurar o tempo todo, a música não é levantada', (await page.locator('.setitem.dragging').count()) === 0)
+  await page.waitForTimeout(450) // agora sim
+  check('ARRASTO: segurar levanta a música', (await page.locator('.setitem.dragging').count()) === 1)
+  await page.mouse.move(xPega, linha2.y + linha2.height * 0.8, { steps: 12 }) // solta sobre a metade de baixo da 3ª linha
+  await page.waitForTimeout(200)
+  check('ARRASTO: os números acompanham o dedo', (await page.textContent('.setitem.dragging .pos')) === '3')
+  await page.mouse.up()
+  await page.waitForTimeout(700)
+  const depoisDoArrasto = await nomes()
+  check('ARRASTO: a música parou na 3ª posição', depoisDoArrasto[2] === antesDoArrasto[0] && depoisDoArrasto[0] === antesDoArrasto[1])
+  check('ARRASTO: soltar não abre a música por engano', (await page.locator('.setitem').count()) > 0 && (await page.locator('.readerbar').count()) === 0)
+
+  // devolve a ordem original e confere que o toque curto continua abrindo a música
+  await page.click('.setitem >> nth=2 >> button[aria-label="Subir na ordem"]')
+  await page.waitForTimeout(400)
+  await page.click('.setitem >> nth=1 >> button[aria-label="Subir na ordem"]')
+  await page.waitForTimeout(400)
+  check('ARRASTO: ordem original restaurada pelos botões', (await nomes())[0] === antesDoArrasto[0])
+  const linhaToque = await page.locator('.setitem').nth(0).boundingBox()
+  await page.mouse.click(linhaToque.x + 120, linhaToque.y + linhaToque.height / 2)
+  await page.waitForSelector('.readerbar', { timeout: 5000 })
+  check('ARRASTO: toque curto continua abrindo a música', true)
+  await page.click('button[aria-label="Sair"]')
+  await page.waitForSelector('.setitem', { timeout: 5000 })
+
   // teclado e pedal: espaço liga e pausa, setas trocam de música
   // (numa cifra comprida, que é onde a rolagem tem o que rolar)
   await page.evaluate(() => { location.hash = '#/add/show3008' })

@@ -245,6 +245,13 @@ export function showEditScreen(id: string): HTMLElement {
   if (show.items.length === 0) {
     content.append(empty('🎼', 'Setlist vazia. Toque em ＋ Música para trazer músicas da biblioteca, na ordem do show.'))
   } else {
+    content.append(
+      h(
+        'p',
+        { className: 'hint', style: { marginBottom: '10px' } },
+        'Para mudar a ordem: segure a música por um instante e arraste até o lugar dela. Os botões ↑ ↓ fazem o mesmo de um em um.'
+      )
+    )
     const list = h('div', { className: 'list' })
     show.items.forEach((item, idx) => {
       const song = store.songs.get(item.songId)
@@ -272,8 +279,8 @@ export function showEditScreen(id: string): HTMLElement {
           h('div', { className: 'meta' }, song.artist || ' ')
         ),
         tomBadge,
-        // subir e descer na ordem do show: arrastar continua valendo, mas no
-        // iPad dois toques secos são bem mais confiáveis que arrastar
+        // subir e descer de um em um: continuam valendo para o ajuste fino,
+        // ao lado do arrasto por toque longo
         h(
           'button',
           {
@@ -324,7 +331,7 @@ export function showEditScreen(id: string): HTMLElement {
           },
           '−'
         ),
-        h('span', { className: 'handle', 'aria-label': 'Arrastar para reordenar' }, '≡')
+        h('span', { className: 'handle', 'aria-label': 'Segure e arraste para mudar a ordem' }, '≡')
       )
       enableDrag(card, list, async () => {
         const order = [...list.children].map((el) => Number((el as HTMLElement).dataset.idx))
@@ -455,35 +462,161 @@ function addSongsSheet(show: Show): void {
   )
 }
 
-// arrasto vertical simples com pointer events no punho ≡
+// Reordenar arrastando a própria música.
+//
+// Duas portas para a mesma coisa: no punho ≡ o arrasto começa na hora (mouse
+// e caneta); em qualquer outro ponto da linha ele começa depois de SEGURAR
+// meio segundo. A espera é o que deixa conviver, no mesmo dedo, três gestos:
+// toque curto abre a música, deslizar rola a lista, segurar carrega a música.
+const ESPERA_MS = 450 // segurar isso para "pegar" a música
+const FOLGA_PX = 10 // mexeu mais que isso antes da hora? era rolagem, não arrasto
+const BORDA_PX = 80 // faixa perto do topo/rodapé que rola a lista sozinha
+const PASSO_PX = 10 // quanto rola por quadro na borda
+
 function enableDrag(card: HTMLElement, list: HTMLElement, onDrop: () => void): void {
   const handle = card.querySelector('.handle') as HTMLElement
-  handle.addEventListener('pointerdown', (down) => {
-    down.preventDefault()
-    handle.setPointerCapture(down.pointerId)
-    card.classList.add('dragging')
-    const move = (ev: PointerEvent) => {
-      const cards = [...list.children] as HTMLElement[]
-      for (const other of cards) {
-        if (other === card) continue
-        const r = other.getBoundingClientRect()
-        const mid = r.top + r.height / 2
-        const cardIdx = cards.indexOf(card)
-        const otherIdx = cards.indexOf(other)
-        if (ev.clientY > mid && otherIdx > cardIdx) list.insertBefore(other, card)
-        else if (ev.clientY < mid && otherIdx < cardIdx) list.insertBefore(card, other)
-      }
+  // ↑ ↓ − e o tom continuam sendo botões de toque: não viram alça de arrasto
+  const ehBotao = (alvo: EventTarget | null): boolean =>
+    alvo instanceof Element && !!alvo.closest('.ordbtn, .badge, [aria-label="Remover do show"]')
+
+  let espera: ReturnType<typeof setTimeout> | null = null
+  let ativo = false
+  let origem: HTMLElement = card
+  let ponteiro = -1
+  let x0 = 0
+  let y0 = 0
+  let ultimoY = 0
+  let quadro = 0
+
+  const rolador = (): HTMLElement | null => card.closest('.content')
+
+  /** Enquanto o dedo está na borda, a lista anda sozinha (setlist não cabe na tela). */
+  const rolaNaBorda = () => {
+    if (!ativo) return
+    const sc = rolador()
+    if (sc) {
+      const r = sc.getBoundingClientRect()
+      if (ultimoY < r.top + BORDA_PX) sc.scrollTop -= PASSO_PX
+      else if (ultimoY > r.bottom - BORDA_PX) sc.scrollTop += PASSO_PX
     }
-    const up = () => {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', up)
-      handle.removeEventListener('pointercancel', up)
-      card.classList.remove('dragging')
+    reordena()
+    quadro = requestAnimationFrame(rolaNaBorda)
+  }
+
+  /** Coloca a linha carregada na posição que corresponde à altura do dedo. */
+  const reordena = () => {
+    const cards = [...list.children] as HTMLElement[]
+    for (const outro of cards) {
+      if (outro === card) continue
+      const r = outro.getBoundingClientRect()
+      const meio = r.top + r.height / 2
+      const aqui = cards.indexOf(card)
+      const la = cards.indexOf(outro)
+      if (ultimoY > meio && la > aqui) list.insertBefore(outro, card)
+      else if (ultimoY < meio && la < aqui) list.insertBefore(card, outro)
+    }
+    // os números da esquerda acompanham o dedo: dá para ver onde a música vai cair
+    ;[...list.children].forEach((el, i) => {
+      const pos = el.querySelector('.pos')
+      if (pos) pos.textContent = String(i + 1)
+    })
+  }
+
+  /** Passa de "segurando" para "carregando a música". */
+  const pega = () => {
+    espera = null
+    ativo = true
+    card.classList.add('dragging')
+    list.classList.add('arrastando')
+    try {
+      origem.setPointerCapture(ponteiro)
+    } catch {
+      // ponteiro já solto: segue sem captura
+    }
+    navigator.vibrate?.(25) // tapinha no dedo: "peguei"
+    // com o dedo, só preventDefault no touchmove segura a rolagem da página
+    document.addEventListener('touchmove', barraRolagem, { passive: false })
+    quadro = requestAnimationFrame(rolaNaBorda)
+  }
+
+  const barraRolagem = (ev: TouchEvent) => {
+    if (ativo) ev.preventDefault()
+  }
+
+  const move = (ev: PointerEvent) => {
+    if (ev.pointerId !== ponteiro) return
+    ultimoY = ev.clientY
+    if (ativo) {
+      reordena()
+      return
+    }
+    // ainda na contagem: qualquer deslize cancela e devolve a rolagem à lista
+    if (Math.abs(ev.clientY - y0) > FOLGA_PX || Math.abs(ev.clientX - x0) > FOLGA_PX) desiste()
+  }
+
+  const solta = (ev: PointerEvent) => {
+    if (ev.pointerId !== ponteiro) return
+    const carregava = ativo
+    limpa()
+    if (carregava) {
+      // o toque que terminou o arrasto não pode abrir a música
+      const engole = (e: Event) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+      card.addEventListener('click', engole, { capture: true, once: true })
+      setTimeout(() => card.removeEventListener('click', engole, true), 400)
       onDrop()
     }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', up)
-    handle.addEventListener('pointercancel', up)
+  }
+
+  const desiste = () => {
+    if (espera) clearTimeout(espera)
+    espera = null
+    if (!ativo) limpa()
+  }
+
+  const limpa = () => {
+    if (espera) clearTimeout(espera)
+    espera = null
+    if (quadro) cancelAnimationFrame(quadro)
+    quadro = 0
+    ativo = false
+    ponteiro = -1
+    card.classList.remove('dragging')
+    list.classList.remove('arrastando')
+    document.removeEventListener('touchmove', barraRolagem)
+    document.removeEventListener('pointermove', move)
+    document.removeEventListener('pointerup', solta)
+    document.removeEventListener('pointercancel', solta)
+  }
+
+  const comeca = (down: PointerEvent, deOnde: HTMLElement, naHora: boolean) => {
+    if (ponteiro !== -1) return
+    ponteiro = down.pointerId
+    origem = deOnde
+    x0 = down.clientX
+    y0 = down.clientY
+    ultimoY = down.clientY
+    document.addEventListener('pointermove', move)
+    document.addEventListener('pointerup', solta)
+    document.addEventListener('pointercancel', solta)
+    if (naHora) {
+      down.preventDefault()
+      pega()
+    } else {
+      espera = setTimeout(pega, ESPERA_MS)
+    }
+  }
+
+  handle.addEventListener('pointerdown', (down) => comeca(down, handle, true))
+  card.addEventListener('pointerdown', (down) => {
+    if (down.target === handle || ehBotao(down.target)) return
+    comeca(down, card, false)
+  })
+  // menu de contexto do toque longo no iPad atrapalharia o gesto
+  card.addEventListener('contextmenu', (e) => {
+    if (ativo) e.preventDefault()
   })
 }
 

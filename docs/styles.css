@@ -235,9 +235,15 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 .chip:active, .chip.sel { border-color: var(--accent); }
 
 /* ---------- setlist ---------- */
-.setitem { touch-action: pan-y; }
+.setitem { touch-action: pan-y; -webkit-touch-callout: none; transition: transform 0.12s ease, box-shadow 0.12s ease; }
 .setitem .handle { color: var(--text-dim); font-size: 20px; padding: 8px; cursor: grab; touch-action: none; }
-.setitem.dragging { opacity: 0.6; border-color: var(--accent); }
+/* música "no colo": levantada da lista enquanto o dedo a carrega */
+.setitem.dragging {
+  border-color: var(--accent); transform: scale(1.02);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45); cursor: grabbing; position: relative; z-index: 2;
+}
+/* enquanto carrega, nada de seleção de texto nem lupa do iPad */
+.list.arrastando, .list.arrastando * { user-select: none; -webkit-user-select: none; }
 .setitem .pos { color: var(--text-dim); font-family: var(--mono); width: 26px; text-align: right; flex: none; }
 .setitem .ordbtn { min-width: 40px; font-size: 19px; color: var(--text-dim); }
 .setitem .ordbtn:active { color: var(--accent); }
