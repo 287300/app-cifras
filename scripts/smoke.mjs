@@ -326,6 +326,39 @@ try {
   await page.evaluate(() => { location.hash = '#/library' })
   await page.waitForSelector('.card:has-text("Vinda Do Ipad")', { timeout: 8000 })
   check('SYNC A: recebe na hora a música criada no outro aparelho', true)
+
+  // B sai da frente com envio pendente: tem de subir na hora, sem esperar os 4 s
+  const antesFlush = cloud.row.updatedAt
+  await pageB.evaluate(() => { location.hash = '#/library' })
+  await pageB.click('button[aria-label="Adicionar música"]')
+  await pageB.fill('textarea', 'Música: Saiu Da Frente\nArtista: Teste\n\n[Intro] C  G\nC     G\nOutra linha\n')
+  await pageB.click('button:has-text("Salvar música")')
+  await pageB.waitForSelector('.readerbar', { timeout: 5000 })
+  const t0 = Date.now()
+  await pageB.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  for (let i = 0; i < 30 && cloud.row.updatedAt === antesFlush; i++) await pageB.waitForTimeout(100)
+  const levou = Date.now() - t0
+  check('SYNC: sair do app manda na hora o que estava pendente (' + levou + 'ms)', cloud.row.updatedAt !== antesFlush && levou < 3000)
+
+  // A fica parada na tela e recebe sozinha, sem ninguém tocar em nada (ronda)
+  await page.goto(`http://localhost:${PORT}/?ronda=1200#/library`)
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  await pageB.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await pageB.evaluate(() => { location.hash = '#/library' })
+  await pageB.click('button[aria-label="Adicionar música"]')
+  await pageB.fill('textarea', 'Música: Chegou Sozinha\nArtista: Teste\n\n[Intro] D  A\nD     A\nLinha da ronda\n')
+  await pageB.click('button:has-text("Salvar música")')
+  await pageB.waitForSelector('.readerbar', { timeout: 5000 })
+  await pageB.waitForTimeout(4600) // envio automático de B
+  await page.waitForSelector('.card:has-text("Chegou Sozinha")', { timeout: 12000 })
+  check('SYNC: app aberto e parado busca a nuvem sozinho (ronda)', true)
+
   await ctxB.close()
   await page.unroute('**/functions/v1/sync*')
 

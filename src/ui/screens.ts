@@ -977,6 +977,11 @@ function syncCard(): HTMLElement {
           `Ligada neste aparelho (${st.device}). ${quando}.`
         ),
         h(
+          'p',
+          { className: 'hint', style: { marginBottom: '10px' } },
+          'Com o app aberto ele confere a nuvem sozinho a cada 45 segundos, e também ao voltar para o app. No palco fica quieto.'
+        ),
+        h(
           'button',
           {
             className: 'btn primary block',

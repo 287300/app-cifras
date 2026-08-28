@@ -43,9 +43,18 @@ export interface SyncStatus {
   error: string
 }
 
+// De quanto em quanto tempo o app aberto olha a nuvem sozinho. Sem isso, um
+// aparelho que fica na tela (o iPad no ensaio) só descobre novidade quando
+// alguém sai e volta para o app.
+// (?ronda=1000 no endereço encurta a ronda: é o gancho usado pelos testes)
+const RONDA_MS = Number(new URLSearchParams(location.search).get('ronda')) || 45_000
+// Piso entre duas buscas seguidas, para o foco não virar enxurrada de buscas.
+const PISO_MS = Math.min(10_000, RONDA_MS)
+
 let kv: SyncKv | null = null
 let cryptoKey: CryptoKey | null = null
 let timer: ReturnType<typeof setTimeout> | null = null
+let ronda: ReturnType<typeof setInterval> | null = null
 let applying = false // aplicando pull: não agendar push por causa desses emits
 let busy = false
 let lastSyncAt = 0
@@ -183,6 +192,35 @@ function schedulePush(): void {
   }, 4000)
 }
 
+/** Envio pendente vai agora: usado quando o app sai da frente ou vai fechar. */
+function flushPush(): void {
+  if (!timer) return
+  clearTimeout(timer)
+  timer = null
+  void pushNow()
+}
+
+/** Busca com piso de tempo, para foco e ronda não virarem enxurrada. */
+function pullSePassouTempo(): void {
+  if (Date.now() - lastSyncAt < PISO_MS) return
+  void pullNow()
+}
+
+function ligaRonda(): void {
+  if (ronda || !kv?.enabled) return
+  ronda = setInterval(() => {
+    if (document.visibilityState !== 'visible') return
+    if (inPlay()) return // no palco ninguém mexe na tela
+    void pullNow()
+  }, RONDA_MS)
+}
+
+function paraRonda(): void {
+  if (!ronda) return
+  clearInterval(ronda)
+  ronda = null
+}
+
 /** Liga a sincronização sozinha: o app sorteia o segredo, sem senha nenhuma. */
 export async function enableSync(device: string): Promise<void> {
   const derived = await deriveFromSecret(randomSecret())
@@ -199,6 +237,7 @@ async function activate(id: string, rawKey: string, device: string): Promise<voi
     await disableSync() // ativação só fica de pé com a 1ª sincronização ok
     throw new Error(msg)
   }
+  ligaRonda()
   notify()
 }
 
@@ -269,8 +308,19 @@ export async function initSync(): Promise<void> {
   }
   store.subscribe(schedulePush)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') void pullNow()
+    if (document.visibilityState === 'visible') {
+      void pullNow()
+      ligaRonda()
+    } else {
+      // saindo da frente: o que estava esperando os 4 s vai agora, senão
+      // o aparelho pode ser fechado antes do envio
+      flushPush()
+      paraRonda()
+    }
   })
+  // fechar a aba ou o app: última chance de mandar o que ficou pendente
+  window.addEventListener('pagehide', flushPush)
+  window.addEventListener('focus', pullSePassouTempo)
   window.addEventListener('online', () => void pullNow())
   window.addEventListener('hashchange', () => {
     if (pendingPull && !inPlay()) {
@@ -278,7 +328,10 @@ export async function initSync(): Promise<void> {
       void pullNow()
     }
   })
-  if (kv?.enabled) void pullNow()
+  if (kv?.enabled) {
+    void pullNow()
+    ligaRonda()
+  }
 }
 
 /** Nome padrão amigável para este aparelho. */
