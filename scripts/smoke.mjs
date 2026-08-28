@@ -300,11 +300,19 @@ try {
   await pageB.waitForSelector('.tabbar', { timeout: 8000 })
   await pageB.evaluate(() => { location.hash = '#/more' })
   await pageB.waitForSelector('button:has-text("Tenho um código")')
+  const classeCodigo = await pageB.getAttribute('button:has-text("Tenho um código")', 'class')
+  check('SYNC: em aparelho vazio o botão do código é o de destaque', classeCodigo.includes('primary'))
   await pageB.click('button:has-text("Tenho um código")')
   await pageB.fill('.sheet input[inputmode="numeric"]', code)
   await pageB.click('.sheet button:has-text("Conectar")')
   await pageB.waitForSelector('.sheet:has-text("Aparelhos conectados")', { timeout: 10000 })
   await pageB.click('.sheetwrap .backdrop')
+  await pageB.evaluate(() => { location.hash = '#/more' })
+  await pageB.waitForSelector('button:has-text("Sincronizar agora")', { timeout: 8000 })
+  check(
+    'SYNC: com a sincronização ligada ainda dá para entrar no conjunto de outro aparelho',
+    (await pageB.locator('button:has-text("Tenho um código")').count()) === 1
+  )
   await pageB.evaluate(() => { location.hash = '#/library' })
   await pageB.waitForSelector('.card:has-text("Aloha")', { timeout: 8000 })
   const cardsB = await pageB.evaluate(() => document.querySelectorAll('.card').length)
@@ -423,7 +431,46 @@ try {
   await page.waitForSelector('.videopane iframe', { timeout: 8000 })
   check('VÍDEO: na segunda vez abre direto o vídeo já escolhido', true)
   await page.click('button:has-text("Fechar vídeo")')
+  await page.click('button[aria-label="Sair"]')
+  await page.waitForSelector('button:has-text("Tocar o show")')
+
+  // clipe entra sozinho junto com a cifra nova, pulando cover e aula
   await page.unroute('**/functions/v1/video*')
+  await page.route('**/functions/v1/video*', (route) => {
+    route.fulfill({
+      json: {
+        hits: [
+          { id: 'covercover1', title: 'Musica Nova - Banda Teste (cover)', channel: 'Fulano', length: '3:00' },
+          { id: 'oficialofi1', title: 'Musica Nova', channel: 'Banda Teste', length: '3:10' },
+        ],
+      },
+    })
+  })
+  await page.evaluate(() => { location.hash = '#/library' })
+  await page.waitForSelector('button[aria-label="Adicionar música"]')
+  await page.click('button[aria-label="Adicionar música"]')
+  await page.fill('textarea', 'Música: Musica Nova\nArtista: Banda Teste\n\n[Intro] C  G\nC     G\nUma linha qualquer\n')
+  await page.click('button:has-text("Salvar música")')
+  await page.waitForSelector('.readerbar', { timeout: 5000 })
+  let clipe = null
+  for (let i = 0; i < 40 && !clipe; i++) {
+    clipe = await page.evaluate(async () => {
+      const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+      const songs = await new Promise((res, rej) => { const t = db.transaction('songs', 'readonly'); const r = t.objectStore('songs').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+      db.close()
+      const s = songs.find((x) => x.title === 'Musica Nova')
+      return s ? s.videoId || null : null
+    })
+    if (!clipe) await page.waitForTimeout(250)
+  }
+  check('VÍDEO AUTOMÁTICO: cifra nova já vem com o clipe do canal do artista', clipe === 'oficialofi1')
+  await page.click('button[aria-label="Sair"]')
+  await page.waitForSelector('.tabbar')
+  await page.unroute('**/functions/v1/video*')
+  await page.evaluate(() => { location.hash = '#/shows/show3008' })
+  await page.waitForSelector('button:has-text("Tocar o show")')
+  await page.click('button:has-text("Tocar o show")')
+  await page.waitForSelector('.readerbar')
   await page.click('button[aria-label="Sair"]')
   await page.waitForSelector('button:has-text("Tocar o show")')
 

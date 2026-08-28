@@ -6,6 +6,7 @@ import { extractImportHeader } from '../engine/importHeader.ts'
 import { guessTom } from '../engine/guessTom.ts'
 import { transposeKey, parseKey } from '../engine/notes.ts'
 import { fetchCifraFromUrl, searchCifras, type FetchedCifra, type SearchHit } from '../importer.ts'
+import { pescaVideo } from '../autovideo.ts'
 import { navigate, type Route } from '../router.ts'
 import { store, type Show, type Song } from '../store.ts'
 import { claimPairCode, createPairCode, defaultDeviceName, disableSync, enableSync, onSyncChange, pullNow, syncStatus } from '../sync.ts'
@@ -663,6 +664,7 @@ export function addScreen(to: string | null): HTMLElement {
             return
           }
           const song = await store.addSong({ title: title.value, artist: artist.value, tom: tom.value, body: body.value })
+          pescaVideo(song.id) // o clipe vem sozinho atrás, sem segurar a tela
           if (to) {
             const show = store.shows.get(to)
             if (show) await store.updateShow(to, { items: [...show.items, { songId: song.id }] })
@@ -824,6 +826,7 @@ export function planbScreen(showId: string | null): HTMLElement {
             return
           }
           const song = await store.addSong({ title: title.value || 'Pedido surpresa', artist: artist.value, tom: tom.value, body: body.value })
+          pescaVideo(song.id)
           if (showId) {
             const show = store.shows.get(showId)
             if (show) {
@@ -925,29 +928,40 @@ function syncCard(): HTMLElement {
         placeholder: 'Nome deste aparelho',
         style: { marginBottom: '10px' },
       }) as HTMLInputElement
+      // aparelho sem música nenhuma quase sempre é o aparelho NOVO: para ele o
+      // caminho certo é o código do outro, não ligar um conjunto vazio do zero
+      const vazio = store.songs.size === 0
       const btn = h(
         'button',
         {
-          className: 'btn primary block',
+          className: vazio ? 'btn block' : 'btn primary block',
+          style: vazio ? { marginTop: '10px' } : null,
           onClick: async () => {
             btn.textContent = 'Ativando…'
             ;(btn as HTMLButtonElement).disabled = true
             try {
               await enableSync(deviceInput.value)
-              alertSheet('Sincronização ligada', 'Nos outros aparelhos, toque em "Tenho um código" e use o código que aparece aqui.')
+              if (store.songs.size === 0) {
+                alertSheet(
+                  'Ligada, mas a nuvem está vazia',
+                  'Não havia nada guardado ainda. Se as suas músicas estão em outro aparelho, toque em "Tenho um código de outro aparelho" aqui e use o código gerado lá.'
+                )
+              } else {
+                alertSheet('Sincronização ligada', 'Nos outros aparelhos, toque em "Tenho um código" e use o código que aparece aqui.')
+              }
             } catch (err) {
               alertSheet('Não deu certo', err instanceof Error ? err.message : 'Tente de novo com internet.')
             }
             render()
           },
         },
-        'Ativar sincronização'
+        vazio ? 'Começar um conjunto novo aqui' : 'Ativar sincronização'
       )
       const claimBtn = h(
         'button',
         {
-          className: 'btn block',
-          style: { marginTop: '10px' },
+          className: vazio ? 'btn primary block' : 'btn block',
+          style: vazio ? null : { marginTop: '10px' },
           onClick: () => claimSheet(deviceInput.value, render),
         },
         'Tenho um código de outro aparelho'
@@ -956,11 +970,13 @@ function syncCard(): HTMLElement {
         h(
           'p',
           { className: 'hint', style: { marginBottom: '10px' } },
-          'Suas músicas seguem você: cada mudança sobe cifrada e aparece nos outros aparelhos quando abrirem o app com internet. Sem senha para inventar: o app cuida disso sozinho. No palco nada muda, tudo continua gravado no aparelho.'
+          vazio
+            ? 'Este aparelho ainda não tem música nenhuma. Se as suas cifras estão em outro aparelho, use o código dele: em Mais, toque em "＋ Conectar outro aparelho" lá e digite aqui os 6 números.'
+            : 'Suas músicas seguem você: cada mudança sobe cifrada e aparece nos outros aparelhos. Sem senha para inventar: o app cuida disso sozinho. No palco nada muda, tudo continua gravado no aparelho.'
         ),
         deviceInput,
-        btn,
-        claimBtn
+        vazio ? claimBtn : btn,
+        vazio ? btn : claimBtn
       )
     } else {
       const quando = st.busy
@@ -989,6 +1005,17 @@ function syncCard(): HTMLElement {
             onClick: () => pairSheet(),
           },
           '＋ Conectar outro aparelho'
+        ),
+        // saída para quem ligou a sincronização por engano neste aparelho e
+        // agora precisa entrar no conjunto onde as músicas realmente estão
+        h(
+          'button',
+          {
+            className: 'btn block',
+            style: { marginBottom: '10px' },
+            onClick: () => claimSheet(st.device, render),
+          },
+          'Tenho um código de outro aparelho'
         ),
         h(
           'div',
@@ -1401,7 +1428,9 @@ export function buscarScreen(showId: string | null): HTMLElement {
     const artist = h('input', { value: fetched.artist }) as HTMLInputElement
     const tom = tomSelect(bestTom(fetched, ''))
     const save = async (): Promise<Song> => {
-      return await store.addSong({ title: title.value, artist: artist.value, tom: tom.value, body: fetched.body, sourceUrl: fetched.sourceUrl })
+      const nova = await store.addSong({ title: title.value, artist: artist.value, tom: tom.value, body: fetched.body, sourceUrl: fetched.sourceUrl })
+      pescaVideo(nova.id)
+      return nova
     }
     area.replaceChildren(
       h('div', { className: 'row', style: { margin: '4px 0 2px' } }, h('span', { className: 'badge' }, tom.value || '—'), h('span', { className: 'hint' }, 'fonte: ' + fetched.host)),
