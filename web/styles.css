@@ -143,10 +143,14 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 .reader { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .reader .content { padding-bottom: 42vh; }
 .readerbar {
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 4px; min-width: 0;
   padding: calc(6px + var(--safe-top)) 8px 6px;
   border-bottom: 1px solid var(--border); background: var(--bg); z-index: 6;
 }
+/* nenhum botão da barra pode virar largura mínima do app: no iPhone a soma
+   deles empurrava a tela inteira para o lado e comia a borda direita */
+.readerbar > * { min-width: 0; flex-shrink: 1; }
+.readerbar .iconbtn { padding: 0 2px; }
 .readerbar .t { flex: 1; min-width: 0; text-align: center; }
 .readerbar .t .title { font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* música tocando agora: é o texto que o olho tem de achar em 1 segundo no palco */
@@ -180,30 +184,55 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 
 /* ---------- clipe ao lado da cifra (ensaio) ---------- */
 .readerbar .iconbtn.on { color: var(--accent); }
-.videopane { display: flex; flex-direction: column; gap: 8px; padding: 8px; min-height: 0; background: var(--bg-raised); }
-.videoframe { position: relative; width: 100%; padding-top: 56.25%; border-radius: 12px; overflow: hidden; background: #000; }
+/* min-width: 0 é o que impede o painel de empurrar a tela inteira para o lado
+   (sem ele, os dois botões abaixo viravam a largura mínima do app no iPhone) */
+.videopane { display: flex; flex-direction: column; gap: 8px; padding: 8px; min-height: 0; min-width: 0; background: var(--bg-raised); }
+/* aspect-ratio em vez do truque do padding-top: com padding-top a altura era
+   calculada sobre a largura do PAINEL, então limitar a largura do vídeo não
+   diminuía a altura e os botões vazavam por cima da cifra */
+.videoframe { position: relative; width: 100%; aspect-ratio: 16 / 9; flex: none; border-radius: 12px; overflow: hidden; background: #000; }
 .videoframe iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.videoacts { display: flex; gap: 8px; }
-.videoacts .btn { flex: 1; }
+.videoacts { display: flex; gap: 8px; min-width: 0; }
+.videoacts .btn {
+  flex: 1 1 0; min-width: 0; padding: 0 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; line-height: var(--tap);
+}
 
 /* deitado: vídeo à esquerda, cifra à direita; em pé: vídeo em cima */
 .reader.withvideo {
   display: grid;
   grid-template-areas: "bar bar" "video cifra" "foot foot";
-  grid-template-columns: minmax(260px, 38%) 1fr;
+  grid-template-columns: clamp(240px, 32%, 420px) 1fr;
   grid-template-rows: auto 1fr auto;
 }
 .reader.withvideo .readerbar { grid-area: bar; }
 .reader.withvideo .videopane { grid-area: video; overflow-y: auto; border-right: 1px solid var(--border); }
-.reader.withvideo .content { grid-area: cifra; }
+.reader.withvideo .content { grid-area: cifra; min-width: 0; }
 .reader.withvideo .playerfoot { grid-area: foot; }
+/*
+ * Com o vídeo aberto a cifra não ocupa mais a tela inteira, então a margem
+ * que centraliza o texto em telas grandes não pode continuar valendo: ela
+ * era calculada em cima da largura da JANELA e comia a coluna da cifra,
+ * cortando o fim das linhas. Aqui ela volta ao mínimo.
+ */
+.reader.withvideo .content { padding-left: 14px; padding-right: 14px; }
+/* se ainda assim sobrar linha comprida, a cifra INTEIRA desliza junto,
+   preservando os acordes em cima das sílabas certas */
+.reader.withvideo .content { overflow-x: auto; }
+.reader.withvideo .cifra .ln-chords,
+.reader.withvideo .cifra .ln-tab { overflow-x: visible; }
+.reader.withvideo .cifra { width: max-content; min-width: 100%; }
+.reader.withvideo .cifra pre { white-space: pre; word-break: normal; }
 @media (orientation: portrait) {
   .reader.withvideo {
     grid-template-areas: "bar" "video" "cifra" "foot";
     grid-template-columns: 1fr;
     grid-template-rows: auto auto 1fr auto;
   }
-  .reader.withvideo .videopane { border-right: none; border-bottom: 1px solid var(--border); overflow: visible; }
+  .reader.withvideo .videopane { border-right: none; border-bottom: 1px solid var(--border); overflow: hidden; }
+  /* em pé, vídeo largo demais rouba altura da cifra: limita e centraliza */
+  .reader.withvideo .videoframe { max-width: 520px; margin: 0 auto; }
+  .reader.withvideo .videoacts { max-width: 520px; margin: 0 auto; width: 100%; }
 }
 
 /* botão de próxima música no rodapé do palco */
@@ -282,4 +311,6 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 @media (min-width: 768px) {
   .content { padding-left: max(14px, calc(50vw - 420px)); padding-right: max(14px, calc(50vw - 420px)); }
   .reader .content { padding-left: max(14px, calc(50vw - 460px)); padding-right: max(14px, calc(50vw - 460px)); }
+  /* vem depois de propósito: com o vídeo aberto a conta acima não vale mais */
+  .reader.withvideo .content { padding-left: 14px; padding-right: 14px; }
 }

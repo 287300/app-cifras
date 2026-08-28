@@ -573,6 +573,58 @@ try {
   await page.click('button[aria-label="Sair"]')
   await page.waitForSelector('button:has-text("Tocar o show")')
 
+  // VÍDEO NO iPAD DEITADO: a cifra não pode ser cortada pela margem de tela grande
+  const ctxL = await browser.newContext({ viewport: { width: 1180, height: 820 } }) // iPad deitado
+  const pageL = await ctxL.newPage()
+  pageL.on('pageerror', (e) => errors.push('L: ' + String(e)))
+  await pageL.route('**/functions/v1/video*', (route) => route.fulfill({ json: { hits: [{ id: 'dQw4w9WgXcQ', title: 'Clipe', channel: 'Banda', length: '3:56' }] } }))
+  await pageL.goto(`http://localhost:${PORT}/`)
+  await pageL.waitForSelector('.tabbar', { timeout: 8000 })
+  await pageL.waitForTimeout(2000)
+  await pageL.waitForSelector('.tabbar', { timeout: 8000 })
+  const LINHA_LONGA = 'Am                          G                         F                    E\nUma linha bem comprida de letra que ocupa a largura inteira da tela do iPad\n'
+  await pageL.evaluate(async (corpo) => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const now = Date.now()
+    await new Promise((res) => {
+      const t = db.transaction(['songs', 'shows'], 'readwrite')
+      t.objectStore('songs').put({ id: 'vid1', title: 'Cifra Larga', artist: 'Banda', tom: 'Am', body: corpo, semitones: 0, scrollSeconds: 180, notes: '', videoId: 'dQw4w9WgXcQ', createdAt: now, updatedAt: now })
+      t.objectStore('shows').put({ id: 'showvid', name: 'Show do vídeo', date: '2026-08-30', items: [{ songId: 'vid1' }], createdAt: now, updatedAt: now })
+      t.oncomplete = res
+    })
+    db.close()
+  }, '[Intro] Am  G\n\n' + LINHA_LONGA)
+  await pageL.reload()
+  await pageL.waitForSelector('.tabbar', { timeout: 8000 })
+  await pageL.evaluate(() => { location.hash = '#/play/showvid/0' })
+  await pageL.waitForSelector('.readerbar', { timeout: 8000 })
+  const semVideo = await pageL.evaluate(() => {
+    const c = document.querySelector('.reader .content')
+    const cs = getComputedStyle(c)
+    return Math.round(c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight))
+  })
+  await pageL.click('button[aria-label="Vídeo da música"]')
+  await pageL.waitForSelector('.videopane iframe', { timeout: 8000 })
+  await pageL.waitForTimeout(400)
+  const comVideo = await pageL.evaluate(() => {
+    const c = document.querySelector('.reader .content')
+    const cs = getComputedStyle(c)
+    const linhas = [...document.querySelectorAll('.cifra .ln-chords, .cifra pre, .cifra .ln-tab')]
+    return {
+      util: Math.round(c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)),
+      margem: Math.round(parseFloat(cs.paddingLeft)),
+      cortadas: linhas.filter((l) => l.scrollWidth > l.clientWidth + 1).length,
+      pagina: document.documentElement.scrollWidth,
+      janela: document.documentElement.clientWidth,
+    }
+  })
+  check('VÍDEO: com o vídeo aberto a margem de tela grande não come a cifra (' + comVideo.margem + 'px)', comVideo.margem <= 20)
+  check('VÍDEO: sobra mais de 700px para a cifra ao lado do vídeo (' + comVideo.util + 'px)', comVideo.util > 700)
+  check('VÍDEO: nenhuma linha da cifra fica cortada', comVideo.cortadas === 0)
+  check('VÍDEO: a tela não escorrega para o lado', comVideo.pagina === comVideo.janela)
+  check('VÍDEO: sem o vídeo a cifra segue centralizada e larga (' + semVideo + 'px)', semVideo > 850)
+  await ctxL.close()
+
   // marca de versão: precisa vir da rede, senão o app nunca percebe cache pela metade
   const marca = await page.evaluate(async () => {
     const r = await fetch('versao.txt?x=' + Date.now(), { cache: 'no-store' })
