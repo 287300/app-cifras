@@ -470,6 +470,69 @@ try {
   await page.click('button[aria-label="Sair"]')
   await page.waitForSelector('button:has-text("Tocar o show")')
 
+  // EDIÇÃO NO PALCO: corrigir a cifra sem sair do show
+  await page.evaluate(() => { location.hash = '#/shows/show3008' })
+  await page.waitForSelector('button:has-text("Tocar o show")')
+  await page.click('button:has-text("Tocar o show")')
+  await page.waitForSelector('.readerbar')
+  const tituloAtual = await page.textContent('.readerbar .t .title')
+  const antesLinhas = await page.locator('.cifra').innerText()
+  await page.click('button[aria-label="Opções"]')
+  await page.waitForSelector('.sheet:has-text("Corrigir a cifra"), .sheet button:has-text("Corrigir a cifra")', { timeout: 5000 })
+  await page.click('.sheet button:has-text("Corrigir a cifra")')
+  await page.waitForSelector('textarea.editorcifra', { timeout: 5000 })
+  check('EDIÇÃO: dá para corrigir a cifra de dentro do show', true)
+  const original = await page.inputValue('textarea.editorcifra')
+  const guardado = await page.evaluate(async (titulo) => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const songs = await new Promise((res, rej) => { const t = db.transaction('songs', 'readonly'); const r = t.objectStore('songs').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    db.close()
+    const s = songs.find((x) => x.title === titulo)
+    return s ? s.body : ''
+  }, tituloAtual)
+  check('EDIÇÃO: o editor abre com a cifra guardada, igualzinha', original === guardado && original.length > 20)
+  // Esc não pode derrubar o show com a correção pela metade
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(300)
+  check('EDIÇÃO: Esc no editor não sai do show', (await page.locator('textarea.editorcifra').count()) === 1)
+  await page.fill('textarea.editorcifra', original + '\n[Final]\nBb    F\nAcorde novo de teste\n')
+  await page.click('.sheet .acoes button:has-text("Salvar a correção")')
+  await page.waitForTimeout(700)
+  check('EDIÇÃO: a folha fecha e volta para a leitura', (await page.locator('textarea.editorcifra').count()) === 0 && (await page.locator('.readerbar').count()) === 1)
+  check('EDIÇÃO: continua na mesma música', (await page.textContent('.readerbar .t .title')) === tituloAtual)
+  const depoisLinhas = await page.locator('.cifra').innerText()
+  check('EDIÇÃO: a correção aparece na hora na cifra', depoisLinhas.includes('Acorde novo de teste') && !antesLinhas.includes('Acorde novo de teste'))
+  const gravado = await page.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const songs = await new Promise((res, rej) => { const t = db.transaction('songs', 'readonly'); const r = t.objectStore('songs').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    db.close()
+    return songs.some((s) => (s.body || '').includes('Acorde novo de teste'))
+  })
+  check('EDIÇÃO: a correção fica gravada na música', gravado)
+  // com o show transposto, o editor precisa mostrar o tom ORIGINAL e avisar
+  await page.click('button[aria-label="Subir meio tom"]')
+  await page.waitForTimeout(300)
+  await page.click('button[aria-label="Opções"]')
+  await page.click('.sheet button:has-text("Corrigir a cifra")')
+  await page.waitForSelector('textarea.editorcifra')
+  const comTom = await page.inputValue('textarea.editorcifra')
+  const avisoTom = await page.locator('.sheet .hint').first().innerText().catch(() => '')
+  check('EDIÇÃO: com o show transposto, edita-se a cifra no tom original', comTom.includes('Acorde novo de teste') && comTom === (await page.evaluate(async (t) => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const songs = await new Promise((res, rej) => { const tx = db.transaction('songs', 'readonly'); const r = tx.objectStore('songs').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    db.close()
+    const s = songs.find((x) => x.title === t)
+    return s ? s.body : ''
+  }, tituloAtual)))
+  check('EDIÇÃO: o editor avisa que o tom do show entra por cima', /meio-tom/.test(avisoTom))
+  await page.click('.sheet .acoes button:has-text("Cancelar")')
+  await page.waitForTimeout(200)
+  await page.click('button[aria-label="Descer meio tom"]')
+  await page.waitForTimeout(300)
+
+  await page.click('button[aria-label="Sair"]')
+  await page.waitForSelector('button:has-text("Tocar o show")')
+
   // clipe entra sozinho junto com a cifra nova, pulando cover e aula
   await page.unroute('**/functions/v1/video*')
   await page.route('**/functions/v1/video*', (route) => {

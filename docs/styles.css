@@ -43,6 +43,13 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus { outline: 2px solid var(--blue); border-color: transparent; }
 textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-space: pre; }
+/* corrigir a cifra no meio do ensaio: campo alto, para ver o verso inteiro */
+.editorcifra { min-height: clamp(150px, 38vh, 420px); font-size: 15px; }
+/* botões colados no pé da folha: com o teclado aberto, Salvar não some */
+.sheet .acoes {
+  position: sticky; bottom: 0; z-index: 1; background: var(--bg-sheet);
+  padding: 10px 0 2px; margin-top: 6px; box-shadow: 0 -10px 12px -8px rgba(0, 0, 0, 0.6);
+}
 
 /* ---------- estrutura de tela ---------- */
 .screen { flex: 1; display: flex; flex-direction: column; min-height: 0; }

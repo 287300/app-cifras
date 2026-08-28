@@ -240,6 +240,9 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
         speedRef(-1)
         break
       case 'Escape':
+        // com uma folha aberta (ex.: corrigindo a cifra), Esc fecha a folha:
+        // sair do show no meio de uma correção perderia o texto digitado
+        if (document.querySelector('.sheetwrap')) return
         e.preventDefault()
         opts.onExit()
         break
@@ -474,6 +477,68 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
       )
     )
 
+    /**
+     * Correção da cifra sem sair da leitura: o erro aparece no ensaio, o
+     * conserto tem de ser ali. Volta na mesma música e na mesma altura.
+     */
+    const abreEditor = () => {
+      scroller?.stop()
+      const altura = content.scrollTop
+      const corpo = h('textarea', { className: 'editorcifra', rows: 18, spellcheck: false }) as HTMLTextAreaElement
+      corpo.value = entry.song.body
+      const obs = h('textarea', { rows: 2, placeholder: 'Observações suas (ex.: entra só no 2º verso)' }) as HTMLTextAreaElement
+      obs.value = entry.song.notes
+      const aviso =
+        semitones !== 0
+          ? h(
+              'p',
+              { className: 'hint', style: { marginBottom: '10px' } },
+              `Você edita a cifra no tom original (${song.tom || 'sem tom'}). O ${semitones > 0 ? '+' : ''}${semitones} meio-tom deste show continua sendo aplicado por cima na leitura.`
+            )
+          : null
+      const fecha = sheet(
+        h('h2', null, 'Corrigir a cifra'),
+        aviso,
+        h('div', { className: 'field' }, h('label', null, 'Cifra de ' + song.title), corpo),
+        h('div', { className: 'field' }, h('label', null, 'Observações'), obs),
+        opts.onEditCurrent
+          ? h(
+              'button',
+              {
+                className: 'btn block',
+                onClick: () => {
+                  fecha()
+                  opts.onEditCurrent!()
+                },
+              },
+              'Abrir a edição completa (nome, artista, tom)'
+            )
+          : null,
+        h(
+          'div',
+          { className: 'acoes' },
+          h(
+            'button',
+            {
+              className: 'btn primary block',
+              onClick: async () => {
+                await store.updateSong(song.id, { body: corpo.value, notes: obs.value })
+                entry.song = store.songs.get(song.id) ?? entry.song
+                fecha()
+                renderCurrent()
+                // volta para a mesma altura da tela: quem corrigiu quer continuar dali
+                const novo = root.querySelector('.content')
+                if (novo) novo.scrollTop = altura
+              },
+            },
+            'Salvar a correção'
+          ),
+          h('button', { className: 'btn block', style: { marginTop: '10px' }, onClick: () => fecha() }, 'Cancelar')
+        )
+      )
+      setTimeout(() => corpo.focus(), 120)
+    }
+
     const openOptions = () => {
       const secondsInput = h('input', {
         type: 'number',
@@ -504,9 +569,18 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
           },
           'Salvar'
         ),
-        opts.onEditCurrent
-          ? h('button', { className: 'btn block', style: { marginTop: '10px' }, onClick: () => { close(); opts.onEditCurrent!() } }, 'Editar cifra')
-          : null,
+        h(
+          'button',
+          {
+            className: 'btn block',
+            style: { marginTop: '10px' },
+            onClick: () => {
+              close()
+              abreEditor()
+            },
+          },
+          '✏️ Corrigir a cifra'
+        ),
         h(
           'button',
           {
