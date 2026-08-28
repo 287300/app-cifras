@@ -54,7 +54,8 @@ function walk(dir: string, base = ''): string[] {
   }
   return out
 }
-const files = walk(OUT).filter((f) => f !== 'sw.js' && f !== '.htaccess')
+const MARCAS = ['version.txt', 'versao.txt'] // marcas de versão: sempre da rede, nunca do cache
+const files = walk(OUT).filter((f) => f !== 'sw.js' && f !== '.htaccess' && !MARCAS.includes(f))
 const hash = createHash('sha256')
 for (const f of files.sort()) hash.update(f).update(readFileSync(join(OUT, f)))
 const version = hash.digest('hex').slice(0, 12)
@@ -86,6 +87,8 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
+  // marca de versão sempre da rede: é ela que denuncia cache pela metade
+  if (/(version|versao)\\.txt$/.test(url.pathname)) return;
   event.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => {
       if (hit) return hit;
@@ -105,8 +108,16 @@ self.addEventListener('fetch', (event) => {
 `
 writeFileSync(join(OUT, 'sw.js'), sw)
 
-// 6) marca da versão para conferência rápida
+// 6) carimba a versão dentro do próprio app e escreve as marcas
+const appPath = join(OUT, 'assets/app.js')
+const app = new TextDecoder().decode(readFileSync(appPath))
+if (!app.includes('__VERSAO__')) {
+  console.error('erro: o pacote não trouxe o espaço da versão (src/version.ts)')
+  process.exit(1)
+}
+writeFileSync(appPath, app.replaceAll('__VERSAO__', version))
 writeFileSync(join(OUT, 'version.txt'), version + '\n')
+writeFileSync(join(OUT, 'versao.txt'), version + '\n')
 
 if (!existsSync(join(OUT, 'icons/icon-192.png'))) {
   console.warn('Aviso: ícones ausentes; rode python3 scripts/icons.py antes do build.')

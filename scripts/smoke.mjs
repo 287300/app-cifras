@@ -69,7 +69,9 @@ page.on('console', (m) => {
 try {
   await page.goto(`http://localhost:${PORT}/`)
   await page.waitForSelector('.tabbar', { timeout: 8000 })
-  check('app abre na tela de Shows', await page.isVisible('text=Shows'))
+  // a barra de abas pode aparecer um quadro antes do texto; espera o botão
+  await page.waitForSelector('.tabbar button:has-text("Shows")', { timeout: 8000 })
+  check('app abre na tela de Shows', (await page.locator('.tabbar button:has-text("Shows")').count()) === 1)
 
   // adicionar música pela biblioteca, colando com o cabeçalho do botão de importar
   await page.click('.tabbar button:has-text("Biblioteca")')
@@ -508,12 +510,34 @@ try {
   await page.click('button[aria-label="Sair"]')
   await page.waitForSelector('button:has-text("Tocar o show")')
 
+  // marca de versão: precisa vir da rede, senão o app nunca percebe cache pela metade
+  const marca = await page.evaluate(async () => {
+    const r = await fetch('versao.txt?x=' + Date.now(), { cache: 'no-store' })
+    return r.ok ? (await r.text()).trim() : 'falhou'
+  })
+  const marcaLocal = (await readFile(join(DOCS, 'versao.txt'), 'utf8')).trim()
+  check('VERSÃO: a marca publicada chega ao app (' + marca + ')', marca === marcaLocal)
+  const carimbo = await page.evaluate(async () => {
+    const t = await (await fetch('assets/app.js')).text()
+    return t.includes('__VERSAO__') ? 'placeholder' : 'carimbado'
+  })
+  check('VERSÃO: o programa sai do build com a versão carimbada dentro', carimbo === 'carimbado')
+
   // modo avião: derruba a rede e o app inteiro precisa continuar abrindo
   await page.evaluate(() => { location.hash = '#/shows' })
   await page.waitForSelector('.tabbar')
   await page.context().setOffline(true)
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForSelector('.readerbar, .tabbar, .topbar', { timeout: 12000 })
+  const marcaOffline = await page.evaluate(async () => {
+    try {
+      const r = await fetch('versao.txt?x=' + Date.now(), { cache: 'no-store' })
+      return r.ok ? 'veio' : 'sem resposta'
+    } catch {
+      return 'sem rede'
+    }
+  })
+  check('VERSÃO: sem internet a marca some e o app não se abala', marcaOffline === 'sem rede' && (await page.locator('.tabbar, .topbar').count()) > 0)
   check('OFFLINE: app abre em modo avião (service worker servindo tudo)', true)
   await page.click('button[aria-label="Sair"]').catch(() => undefined)
   await page.context().setOffline(false)

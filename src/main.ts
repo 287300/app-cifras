@@ -2,6 +2,7 @@
 // e liga o roteador às telas, com a barra de abas nas telas de lista.
 
 import { currentRoute, navigate, onRouteChange, type Route } from './router.ts'
+import { VERSAO } from './version.ts'
 import { store } from './store.ts'
 import { initSync } from './sync.ts'
 import { h, clear } from './ui/dom.ts'
@@ -68,6 +69,28 @@ function render(route: Route): void {
   }
 }
 
+/**
+ * Compara a versão que ESTE programa tem gravada com a marca publicada no
+ * servidor. Diferente quer dizer cache pela metade: limpa tudo e recarrega
+ * uma vez só. Sem internet não faz nada, que é o certo no palco.
+ */
+async function confereVersao(): Promise<void> {
+  try {
+    if (!navigator.onLine) return
+    const res = await fetch('versao.txt?x=' + Date.now(), { cache: 'no-store' })
+    if (!res.ok) return
+    const publicada = (await res.text()).trim()
+    if (!publicada || publicada === VERSAO) return
+    if (sessionStorage.getItem('versao-recarregada') === publicada) return // já tentei nesta sessão
+    sessionStorage.setItem('versao-recarregada', publicada)
+    for (const reg of await navigator.serviceWorker.getRegistrations()) await reg.unregister()
+    for (const chave of await caches.keys()) await caches.delete(chave)
+    location.reload() // as músicas ficam: elas vivem no IndexedDB, não no cache
+  } catch {
+    // offline ou marca ausente: segue com o que está no aparelho
+  }
+}
+
 async function boot(): Promise<void> {
   if ('serviceWorker' in navigator) {
     try {
@@ -89,6 +112,10 @@ async function boot(): Promise<void> {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') void reg.update()
       })
+      // rede de segurança: se o caminho normal não resolver em alguns segundos,
+      // o aparelho pode ter ficado com meia versão no cache (arquivo novo com
+      // programa velho). Aí limpa e recarrega uma vez.
+      setTimeout(() => void confereVersao(), 8000)
     } catch {
       // sem service worker (ex.: rodando de file://): o app segue funcionando online
     }
