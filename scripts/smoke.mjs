@@ -214,7 +214,11 @@ try {
   // botão "próxima música" visível no palco, com o nome da próxima
   await page.evaluate(() => { location.hash = '#/play/show3008/0' })
   await page.waitForSelector('.playerfoot .nextbtn')
-  check('botão mostra o nome da próxima música', (await page.textContent('.playerfoot .nextbtn')).includes("L'Avventura"))
+  const rodape = await page.textContent('.playerfoot .nextbtn')
+  check('botão diz "próxima" com o nome da próxima música', rodape.includes('próxima') && rodape.includes("L'Avventura"))
+  check('botão da próxima não usa o destaque laranja', !(await page.getAttribute('.playerfoot .nextbtn', 'class')).includes('primary'))
+  check('música tocando aparece em destaque', await page.isVisible('.readerbar .t .title.nowplaying'))
+  if (process.env.SHOT) await page.screenshot({ path: '/tmp/palco.png' })
   await page.click('.playerfoot .nextbtn')
   await page.waitForSelector('.readerbar .t .meta:has-text("2 de 13")')
   check('botão troca de música na hora', true)

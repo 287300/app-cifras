@@ -263,7 +263,7 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
     const title = h(
       'div',
       { className: 't' },
-      h('div', { className: 'title' }, song.title),
+      h('div', { className: 'title nowplaying' }, song.title),
       h('div', { className: 'meta' }, opts.subtitle ? opts.subtitle(opts.index) : song.artist || ' ')
     )
     // botão do clipe: abre o vídeo ao lado da cifra para ensaiar junto
@@ -412,15 +412,17 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
       ? h(
           'button',
           {
-            className: 'btn primary nextbtn',
-            'aria-label': 'Próxima música',
+            className: 'btn nextbtn',
+            'aria-label': nextEntry ? 'Próxima música: ' + nextEntry.song.title : 'Última música do show',
             disabled: !nextEntry,
             onClick: (e: Event) => {
               e.stopPropagation()
               go(1)
             },
           },
-          h('span', { className: 'nextlabel' }, nextEntry ? '›  ' + nextEntry.song.title : 'última música')
+          h('span', { className: 'nextcap' }, 'próxima'),
+          h('span', { className: 'nextlabel' }, nextEntry ? nextEntry.song.title : 'última música'),
+          h('span', { className: 'nextarrow' }, '›')
         )
       : null
 

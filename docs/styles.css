@@ -142,6 +142,8 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 }
 .readerbar .t { flex: 1; min-width: 0; text-align: center; }
 .readerbar .t .title { font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* música tocando agora: é o texto que o olho tem de achar em 1 segundo no palco */
+.readerbar .t .title.nowplaying { font-size: 19px; font-weight: 800; color: var(--accent); letter-spacing: 0.2px; }
 .readerbar .t .meta { color: var(--text-dim); font-size: 12px; }
 .playerfoot {
   display: flex; align-items: center; gap: 6px; padding: 6px 10px calc(6px + var(--safe-bottom));
@@ -198,8 +200,13 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 }
 
 /* botão de próxima música no rodapé do palco */
-.playerfoot .nextbtn { flex: 1; min-width: 0; min-height: 48px; justify-content: flex-start; padding: 0 14px; }
-.playerfoot .nextbtn .nextlabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.playerfoot .nextbtn { flex: 1; min-width: 0; min-height: 48px; justify-content: flex-start; gap: 8px; padding: 0 12px; }
+.playerfoot .nextbtn .nextcap {
+  flex: none; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-dim); font-weight: 600;
+}
+.playerfoot .nextbtn .nextlabel { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.playerfoot .nextbtn .nextarrow { flex: none; color: var(--text-dim); font-size: 20px; line-height: 1; }
 .playerfoot .nextbtn:disabled { opacity: 0.4; }
 
 /* ---------- folha inferior (acordes etc.) ---------- */
