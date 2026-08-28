@@ -536,7 +536,9 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
           h('button', { className: 'btn block', style: { marginTop: '10px' }, onClick: () => fecha() }, 'Cancelar')
         )
       )
-      setTimeout(() => corpo.focus(), 120)
+      // sem foco automático: no iPad o teclado subiria na hora e taparia a
+      // cifra. Ele abre mostrando o começo, e o dedo escolhe onde corrigir.
+      corpo.scrollTop = 0
     }
 
     const openOptions = () => {

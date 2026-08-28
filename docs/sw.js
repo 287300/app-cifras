@@ -1,5 +1,5 @@
-// Gerado por scripts/build.ts — versão c7f9b08dec05
-const VERSION = 'cifras-c7f9b08dec05';
+// Gerado por scripts/build.ts — versão 14d865f7cb78
+const VERSION = 'cifras-14d865f7cb78';
 const PRECACHE = ["./","./assets/app.js","./icons/apple-touch-icon.png","./icons/icon-192.png","./icons/icon-512.png","./index.html","./manifest.json","./styles.css"];
 
 self.addEventListener('install', (event) => {
