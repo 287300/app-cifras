@@ -411,20 +411,21 @@ export function readerScreen(opts: ReaderOptions): HTMLElement {
           '‹'
         )
       : null
+    // o rodapé só diz PARA ONDE se vai; quem tem de saltar aos olhos é o nome
+    // da música que está tocando, lá em cima
     const nextBtn = multi
       ? h(
           'button',
           {
             className: 'btn nextbtn',
-            'aria-label': nextEntry ? 'Próxima música: ' + nextEntry.song.title : 'Última música do show',
+            'aria-label': nextEntry ? 'Próxima música' : 'Última música do show',
             disabled: !nextEntry,
             onClick: (e: Event) => {
               e.stopPropagation()
               go(1)
             },
           },
-          h('span', { className: 'nextcap' }, 'próxima'),
-          h('span', { className: 'nextlabel' }, nextEntry ? nextEntry.song.title : 'última música'),
+          h('span', { className: 'nextlabel' }, nextEntry ? 'próxima música' : 'última música'),
           h('span', { className: 'nextarrow' }, '›')
         )
       : null

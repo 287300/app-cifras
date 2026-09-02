@@ -154,7 +154,12 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
 .readerbar .t { flex: 1; min-width: 0; text-align: center; }
 .readerbar .t .title { font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* música tocando agora: é o texto que o olho tem de achar em 1 segundo no palco */
-.readerbar .t .title.nowplaying { font-size: 19px; font-weight: 800; color: var(--accent); letter-spacing: 0.2px; }
+/* a música tocando agora é o texto mais importante da tela: cresce com a tela
+   e é o único em laranja no alto */
+.readerbar .t .title.nowplaying {
+  font-size: clamp(22px, 3vw, 34px); font-weight: 800; color: var(--accent);
+  letter-spacing: 0.2px; line-height: 1.15;
+}
 .readerbar .t .meta { color: var(--text-dim); font-size: 12px; }
 .playerfoot {
   display: flex; align-items: center; gap: 6px; padding: 6px 10px calc(6px + var(--safe-bottom));
@@ -235,13 +240,12 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
   .reader.withvideo .videoacts { max-width: 520px; margin: 0 auto; width: 100%; }
 }
 
-/* botão de próxima música no rodapé do palco */
-.playerfoot .nextbtn { flex: 1; min-width: 0; min-height: 48px; justify-content: flex-start; gap: 8px; padding: 0 12px; }
-.playerfoot .nextbtn .nextcap {
-  flex: none; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
-  color: var(--text-dim); font-weight: 600;
+/* botão de próxima música no rodapé do palco: só o destino, sem o nome dela */
+.playerfoot .nextbtn { flex: 1; min-width: 0; min-height: 48px; justify-content: center; gap: 10px; padding: 0 12px; }
+.playerfoot .nextbtn .nextlabel {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-transform: uppercase; letter-spacing: 1px; font-size: 13px; font-weight: 600; color: var(--text-dim);
 }
-.playerfoot .nextbtn .nextlabel { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .playerfoot .nextbtn .nextarrow { flex: none; color: var(--text-dim); font-size: 20px; line-height: 1; }
 .playerfoot .nextbtn:disabled { opacity: 0.4; }
 

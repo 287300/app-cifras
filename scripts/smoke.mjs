@@ -213,13 +213,20 @@ try {
   await page.click('button:has-text("Colar e salvar")')
   await page.waitForSelector('.banner:has-text("mesma cifra")')
   check('assistente barra colagem repetida', true)
-  // botão "próxima música" visível no palco, com o nome da próxima
+  // rodapé só diz para onde vai; o nome da próxima NÃO aparece na tela
   await page.evaluate(() => { location.hash = '#/play/show3008/0' })
   await page.waitForSelector('.playerfoot .nextbtn')
   const rodape = await page.textContent('.playerfoot .nextbtn')
-  check('botão diz "próxima" com o nome da próxima música', rodape.includes('próxima') && rodape.includes("L'Avventura"))
+  check('botão diz apenas "próxima música"', rodape.toLowerCase().includes('próxima música'))
+  check('o nome da próxima música não aparece na tela', !rodape.includes("L'Avventura") && !(await page.locator('.playerfoot').innerText()).includes("L'Avventura"))
   check('botão da próxima não usa o destaque laranja', !(await page.getAttribute('.playerfoot .nextbtn', 'class')).includes('primary'))
   check('música tocando aparece em destaque', await page.isVisible('.readerbar .t .title.nowplaying'))
+  const corpoTitulo = await page.evaluate(() => {
+    const t = document.querySelector('.readerbar .t .title.nowplaying')
+    const proxima = document.querySelector('.playerfoot .nextbtn .nextlabel')
+    return { titulo: parseFloat(getComputedStyle(t).fontSize), rodape: parseFloat(getComputedStyle(proxima).fontSize) }
+  })
+  check('o nome da música tocando é bem maior que o texto do rodapé (' + corpoTitulo.titulo + 'px x ' + corpoTitulo.rodape + 'px)', corpoTitulo.titulo >= corpoTitulo.rodape * 1.6)
   if (process.env.SHOT) await page.screenshot({ path: '/tmp/palco.png' })
   await page.click('.playerfoot .nextbtn')
   await page.waitForSelector('.readerbar .t .meta:has-text("2 de 13")')
