@@ -1,7 +1,7 @@
-// Sincronização entre aparelhos do App de Cifras (uso pessoal do Eder).
+// Sincronização entre aparelhos do App de Cifras.
 //
-// O app cifra as músicas NO APARELHO com a palavra-chave do Eder; aqui só
-// chegam blobs ilegíveis. Uma linha por palavra-chave (id = hash dela).
+// O app cifra as músicas NO APARELHO com um segredo sorteado lá; aqui só
+// chegam blobs ilegíveis. Uma linha por segredo (id = hash dele).
 //
 //   POST {op:'pull', id}                                → {empty} ou {payload, updatedAt, device}
 //   POST {op:'push', id, payload, device, baseUpdatedAt} → {ok, updatedAt} ou 409 {conflict, ...}

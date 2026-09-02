@@ -293,25 +293,6 @@ Deno.serve(async (req: Request) => {
       return json(extractCifra(html, finalUrl), 200, origin)
     }
 
-    if (op === 'debug') {
-      // inspeção de formato (apenas cabeçalho da resposta; sem conteúdo de cifra)
-      const target = url.searchParams.get('url') ?? ''
-      if (!isPublicHttpUrl(target)) return json({ error: 'endereço inválido' }, 400, origin)
-      const res = await fetch(target, { headers: { 'User-Agent': UA } })
-      const raw = await res.text()
-      const find = url.searchParams.get('find')
-      if (find === 'tom') {
-        const windows: string[] = []
-        const re = /("tom"|id="?[a-z_]*tom|[Tt]om:)/g
-        let mm: RegExpExecArray | null
-        while ((mm = re.exec(raw)) !== null && windows.length < 5) {
-          windows.push(raw.slice(Math.max(0, mm.index - 10), mm.index + 70).replace(/\s+/g, ' '))
-        }
-        return json({ status: res.status, windows }, 200, origin)
-      }
-      return json({ status: res.status, contentType: res.headers.get('content-type'), first: raw.slice(0, 700) }, 200, origin)
-    }
-
     return json({ error: 'use op=search ou op=fetch' }, 400, origin)
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : 'falhou' }, 502, origin)

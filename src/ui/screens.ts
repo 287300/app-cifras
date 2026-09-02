@@ -1,6 +1,9 @@
 // Telas do app: shows e setlist, biblioteca, adicionar/editar música,
 // busca plano B e mais (backup). A leitura de palco vive em reader.ts.
 
+import { contaAtual, entrarComCodigo, onContaChange, pedirCodigo, recadoDoLink, sair } from '../conta.ts'
+import { ajustaDonoPelaTela, type AvisoDeTroca, type RespostaDaTroca } from '../dono.ts'
+import { normalizaCodigo, sugestaoDeEmail } from '../engine/conta.ts'
 import { parseCifra } from '../engine/parse.ts'
 import { extractImportHeader } from '../engine/importHeader.ts'
 import { guessTom } from '../engine/guessTom.ts'
@@ -10,7 +13,7 @@ import { pescaVideo } from '../autovideo.ts'
 import { navigate, type Route } from '../router.ts'
 import { store, type Show, type Song } from '../store.ts'
 import { claimPairCode, createPairCode, defaultDeviceName, disableSync, enableSync, onSyncChange, pullNow, syncStatus } from '../sync.ts'
-import { confirmDialog, h, sheet } from './dom.ts'
+import { confirmDialog, h, sheet, sheetComSaida } from './dom.ts'
 import { readerScreen, releaseWakeLock } from './reader.ts'
 
 // ---------- pedaços comuns ----------
@@ -1042,6 +1045,227 @@ function claimSheet(deviceName: string, onDone: () => void): void {
   setTimeout(() => input.focus(), 100)
 }
 
+// ---------- conta (entrar pelo e-mail, sem senha) ----------
+
+/** Segundo passo de entrar: os 6 números que chegaram por e-mail. */
+function codigoSheet(email: string, onDone: () => void): void {
+  const input = h('input', {
+    type: 'text',
+    inputMode: 'numeric',
+    autocomplete: 'one-time-code',
+    placeholder: '000000',
+    style: { fontSize: '28px', textAlign: 'center', letterSpacing: '6px', fontFamily: 'var(--mono)' },
+  }) as HTMLInputElement
+  const status = h(
+    'p',
+    { className: 'hint', style: { marginTop: '10px' } },
+    `Mandamos um e-mail para ${email} com 6 números. Digite eles aqui.`
+  )
+  const btn = h('button', { className: 'btn primary block', style: { marginTop: '12px' } }, 'Entrar') as HTMLButtonElement
+  const reenviar = h('button', { className: 'btn block', style: { marginTop: '10px' } }, 'Mandar outro e-mail') as HTMLButtonElement
+
+  let enviando = false
+  let jaRecusado = '' // não repete sozinho um código que o servidor já negou
+  const entrar = async () => {
+    const codigo = normalizaCodigo(input.value)
+    if (enviando || codigo === jaRecusado) return
+    enviando = true
+    btn.textContent = 'Entrando…'
+    btn.disabled = true
+    try {
+      await entrarComCodigo(email, codigo)
+      close()
+      // de quem é a biblioteca deste aparelho já está sendo decidido: espera a
+      // resposta antes de comemorar, senão nascem dois avisos na mesma tela
+      const dono = await ajustaDonoPelaTela()
+      if (dono === 'trocou' || dono === 'cancelou') {
+        onDone()
+        return
+      }
+      if (dono === 'falhou') {
+        alertSheet(
+          'Entrou, mas confira o repertório',
+          'Você entrou com ' + email + ', só que este aparelho não deixou gravar tudo. Abra a Biblioteca e veja se está como você deixou. Se algo faltar, importe a sua cópia de segurança em Mais.'
+        )
+        onDone()
+        return
+      }
+      alertSheet(
+        'Pronto',
+        dono === 'adotou' && store.songs.size > 0
+          ? 'Você entrou com ' + email + '. O repertório deste aparelho agora é da sua conta, inteirinho.'
+          : 'Você entrou com ' + email + '. Nada foi apagado deste aparelho.'
+      )
+      onDone()
+    } catch (err) {
+      jaRecusado = codigo
+      status.textContent = err instanceof Error ? err.message : 'Não deu certo.'
+      btn.textContent = 'Entrar'
+      btn.disabled = false
+    } finally {
+      enviando = false
+    }
+  }
+
+  // o teclado numérico do iPad manda de tudo: aceita como vier e entra sozinho
+  input.addEventListener('input', () => {
+    input.value = normalizaCodigo(input.value)
+    if (input.value.length === 6) void entrar()
+  })
+  btn.addEventListener('click', () => void entrar())
+  reenviar.addEventListener('click', async () => {
+    reenviar.textContent = 'Mandando…'
+    reenviar.disabled = true
+    try {
+      await pedirCodigo(email)
+      status.textContent = 'Mandamos outro e-mail para ' + email + '. Use o código mais novo.'
+    } catch (err) {
+      status.textContent = err instanceof Error ? err.message : 'Não deu certo.'
+    }
+    reenviar.textContent = 'Mandar outro e-mail'
+    reenviar.disabled = false
+  })
+
+  const close = sheet(
+    h('h2', null, 'Digite o código'),
+    input,
+    status,
+    btn,
+    reenviar,
+    h(
+      'p',
+      { className: 'hint', style: { marginTop: '12px' } },
+      'O e-mail também traz um link. Se você abriu o app pelo ícone da tela de início, use o código: o link abre no navegador, que é outro lugar.'
+    )
+  )
+  setTimeout(() => input.focus(), 100)
+}
+
+/** Cartão da conta: entrar com o e-mail, ver quem entrou e sair. */
+function contaCard(): HTMLElement {
+  const wrap = h('div', { style: { marginBottom: '24px' } })
+
+  const render = () => {
+    const conta = contaAtual()
+    const parts: (HTMLElement | null)[] = [h('h2', { style: { fontSize: '18px', margin: '8px 0' } }, 'Sua conta')]
+
+    if (conta) {
+      parts.push(
+        h(
+          'p',
+          { className: 'hint', style: { marginBottom: '10px' } },
+          `Entrando como ${conta.email || 'sua conta'}. As músicas continuam gravadas neste aparelho, com ou sem internet.`
+        ),
+        h(
+          'button',
+          {
+            className: 'btn block',
+            onClick: async () => {
+              if (await confirmDialog('Sair da conta neste aparelho? Nenhuma música é apagada.', 'Sair')) {
+                await sair()
+                render()
+              }
+            },
+          },
+          'Sair da conta'
+        )
+      )
+    } else {
+      const emailInput = h('input', {
+        type: 'email',
+        inputMode: 'email',
+        autocomplete: 'email',
+        autocapitalize: 'off',
+        spellcheck: false,
+        placeholder: 'seu@email.com',
+        style: { marginBottom: '10px' },
+      }) as HTMLInputElement
+      const aviso = h('p', { className: 'hint', style: { marginBottom: '10px', display: 'none' } })
+      // o link do e-mail pode ter chegado vencido ou sem sinal: o recado que
+      // sobrou daquela tentativa aparece aqui, senão a pessoa fica sem saber
+      const recado = recadoDoLink()
+      if (recado) {
+        aviso.style.display = ''
+        aviso.textContent = recado
+      }
+      let liberado = '' // e-mail que a pessoa confirmou mesmo com cara de erro de dedo
+
+      const btn = h('button', { className: 'btn primary block' }, 'Entrar com meu e-mail') as HTMLButtonElement
+      btn.addEventListener('click', async () => {
+        const digitado = emailInput.value
+        const sugestao = sugestaoDeEmail(digitado)
+        if (sugestao && liberado !== digitado.trim().toLowerCase()) {
+          aviso.style.display = ''
+          aviso.replaceChildren(
+            document.createTextNode('Você quis dizer ' + sugestao + '? '),
+            h(
+              'button',
+              {
+                className: 'btn',
+                style: { marginLeft: '6px' },
+                onClick: () => {
+                  emailInput.value = sugestao
+                  aviso.style.display = 'none'
+                  btn.click()
+                },
+              },
+              'Sim, corrigir'
+            ),
+            h(
+              'button',
+              {
+                className: 'btn',
+                style: { marginLeft: '6px' },
+                onClick: () => {
+                  liberado = digitado.trim().toLowerCase()
+                  aviso.style.display = 'none'
+                  btn.click()
+                },
+              },
+              'Não, é esse mesmo'
+            )
+          )
+          return
+        }
+        btn.textContent = 'Mandando o código…'
+        btn.disabled = true
+        try {
+          const email = await pedirCodigo(digitado)
+          aviso.style.display = 'none'
+          codigoSheet(email, render)
+        } catch (err) {
+          aviso.style.display = ''
+          aviso.textContent = err instanceof Error ? err.message : 'Não deu certo.'
+        }
+        btn.textContent = 'Entrar com meu e-mail'
+        btn.disabled = false
+      })
+
+      parts.push(
+        h(
+          'p',
+          { className: 'hint', style: { marginBottom: '10px' } },
+          'Entre com o e-mail e pronto: o app manda 6 números para você digitar. Senha não existe aqui, então não tem senha para esquecer.'
+        ),
+        emailInput,
+        aviso,
+        btn
+      )
+    }
+    wrap.replaceChildren(...parts.filter((p): p is HTMLElement => p !== null))
+  }
+
+  const un = onContaChange(() => {
+    if (!wrap.isConnected) {
+      un()
+      return
+    }
+    render()
+  })
+  render()
+  return wrap
+}
+
 /** Cartão da sincronização entre aparelhos (o "carteiro" das músicas). */
 function syncCard(): HTMLElement {
   const wrap = h('div', { style: { marginBottom: '24px' } })
@@ -1217,6 +1441,7 @@ export function moreScreen(): HTMLElement {
 
   content.append(
     h('p', { className: 'hint', style: { marginBottom: '16px' } }, stats),
+    contaCard(),
     h('h2', { style: { fontSize: '18px', margin: '8px 0' } }, 'Backup'),
     h('p', { className: 'hint', style: { marginBottom: '10px' } }, 'Exporte um arquivo com a biblioteca inteira (músicas, shows e ajustes) e guarde no iCloud ou envie para você mesmo. Importar recupera tudo.'),
     h(
@@ -1227,16 +1452,7 @@ export function moreScreen(): HTMLElement {
         {
           className: 'btn',
           style: { flex: '1' },
-          onClick: () => {
-            const blob = new Blob([store.exportData()], { type: 'application/json' })
-            const a = h('a', {
-              href: URL.createObjectURL(blob),
-              download: 'cifras-backup-' + new Date().toISOString().slice(0, 10) + '.json',
-            }) as HTMLAnchorElement
-            document.body.append(a)
-            a.click()
-            a.remove()
-          },
+          onClick: () => baixaArquivo('cifras-backup-' + new Date().toISOString().slice(0, 10) + '.json', store.exportData()),
         },
         '⬇ Exportar backup'
       ),
@@ -1701,6 +1917,81 @@ export function botaoScreen(): HTMLElement {
   )
   root.append(content)
   return root
+}
+
+/** Baixa um arquivo gerado na hora (backup, cópia antes de trocar de conta). */
+function baixaArquivo(nome: string, conteudo: string): void {
+  const blob = new Blob([conteudo], { type: 'application/json' })
+  const a = h('a', { href: URL.createObjectURL(blob), download: nome }) as HTMLAnchorElement
+  document.body.append(a)
+  a.click()
+  a.remove()
+}
+
+/**
+ * Outra conta entrando num aparelho que já tem repertório. Cada conta monta o
+ * repertório dela do zero, então aqui a pessoa escolhe com os olhos abertos:
+ * começar limpo (com cópia oferecida antes) ou voltar para a conta de antes.
+ */
+export function perguntaTrocaDeConta(aviso: AvisoDeTroca): Promise<RespostaDaTroca> {
+  return new Promise((resolve) => {
+    let respondido = false
+    const responde = (r: RespostaDaTroca) => {
+      if (respondido) return
+      respondido = true
+      close()
+      resolve(r)
+    }
+
+    // O botão que apaga só acende depois da cópia. Apagar a biblioteca inteira
+    // é o pior estrago possível deste app, e a cópia é a única volta: nem a
+    // nuvem serve, porque a chave que decifra o que está lá sai daqui junto.
+    const apagar = h('button', { className: 'btn danger block', disabled: true }, 'Guarde a cópia primeiro') as HTMLButtonElement
+    const copiar = h(
+      'button',
+      {
+        className: 'btn primary block',
+        style: { marginBottom: '10px' },
+        onClick: () => {
+          baixaArquivo('cifras-antes-da-troca-' + new Date().toISOString().slice(0, 10) + '.json', aviso.backup())
+          copiar.textContent = '✓ Cópia guardada'
+          apagar.disabled = false
+          apagar.textContent = 'Começar limpo nesta conta'
+        },
+      },
+      '⬇ Guardar uma cópia antes'
+    ) as HTMLButtonElement
+
+    apagar.addEventListener('click', async () => {
+      if (apagar.disabled) return
+      if (await confirmDialog(`Apagar ${aviso.resumo} deste aparelho para começar do zero nesta conta?`, 'Apagar e começar limpo')) {
+        responde('comecar-limpo')
+      }
+    })
+
+    const close = sheetComSaida(
+      () => responde('cancelar'), // tocar fora é o mesmo que cancelar, nunca apagar
+      h('h2', null, 'Este aparelho já tem repertório'),
+      h(
+        'p',
+        { style: { marginBottom: '10px' } },
+        `Aqui estão ${aviso.resumo} de outra conta. Cada conta monta o repertório dela, então nada disso entra na conta nova.`
+      ),
+      h(
+        'p',
+        { className: 'hint', style: { marginBottom: '14px' } },
+        'Guarde a cópia antes: ela é a única forma de ter esse repertório de volta (é só importar em Mais). A cópia da nuvem sai daqui junto e não dá para ler depois. Cancelar deixa tudo como está.'
+      ),
+      copiar,
+      h('button', { className: 'btn block', style: { marginBottom: '10px' }, onClick: () => responde('cancelar') }, 'Cancelar e manter o repertório'),
+      apagar
+    )
+  })
+}
+
+/** Aviso simples, para quem está fora das telas (o vigia da biblioteca). */
+export function avisoSimples(title: string, message: string): void {
+  alertSheet(title, message)
 }
 
 function alertSheet(title: string, message: string): void {

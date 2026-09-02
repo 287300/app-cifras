@@ -1,6 +1,8 @@
 // Cliente do ajudante de busca (função no Supabase do Eder).
 // Sempre uma ação humana por chamada: buscar uma vez, ler uma página escolhida.
 
+import { FUNCOES, SUPABASE_ANON } from './supabase.ts'
+
 export interface SearchHit {
   title: string
   url: string
@@ -17,9 +19,8 @@ export interface FetchedCifra {
   weak: boolean
 }
 
-const FN = 'https://sokdnapkjlmnfqjpjulz.supabase.co/functions/v1/cifra'
-const KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNva2RuYXBramxtbmZxanBqdWx6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNjYxNzIsImV4cCI6MjEwMjk0MjE3Mn0.QxqLX9IstqaZS5DaoGbjUWilfwRoxohlICUvRj1E8Ww'
+const FN = FUNCOES + '/cifra'
+const KEY = SUPABASE_ANON
 
 const HEADERS = { apikey: KEY, Authorization: 'Bearer ' + KEY }
 
@@ -56,7 +57,7 @@ export interface VideoHit {
   length: string
 }
 
-const FN_VIDEO = 'https://sokdnapkjlmnfqjpjulz.supabase.co/functions/v1/video'
+const FN_VIDEO = FUNCOES + '/video'
 
 /** Procura o clipe no YouTube pelo nome da música e do artista. */
 export async function searchVideos(q: string): Promise<VideoHit[]> {

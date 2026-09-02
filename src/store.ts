@@ -125,6 +125,27 @@ class Store {
     this.emit()
   }
 
+  /**
+   * Esvazia o repertório deste aparelho: músicas e shows.
+   *
+   * Existe para UMA situação só: outra conta entrando num aparelho que já tem
+   * repertório de alguém. Cada pessoa monta o dela do zero, então a biblioteca
+   * antiga não pode ser herdada nem misturada. Os ajustes de leitura (tamanho
+   * da letra) ficam: são do aparelho, não do repertório.
+   */
+  async limpaRepertorio(): Promise<void> {
+    // memória primeiro: a tela fica certa na hora, e uma sincronização que
+    // esteja gravando no meio do caminho não escapa da varredura de baixo
+    this.songs.clear()
+    this.shows.clear()
+    this.emit()
+    // e o banco a partir do que ELE tem agora, não de um retrato antigo
+    for (const song of await db.getAllSongs()) await db.deleteSong(song.id)
+    for (const show of await db.getAllShows()) await db.deleteShow(show.id)
+    const sobrou = (await db.getAllSongs()).length + (await db.getAllShows()).length
+    if (sobrou > 0) throw new Error('não deu para apagar tudo: ' + sobrou + ' registro(s) ficaram')
+  }
+
   // ---------- ajustes ----------
 
   async setSettings(patch: Partial<Settings>): Promise<void> {

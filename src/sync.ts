@@ -10,6 +10,7 @@
 
 import { db } from './db.ts'
 import { store } from './store.ts'
+import { FUNCOES, SUPABASE_ANON } from './supabase.ts'
 import {
   contentHash,
   decryptText,
@@ -22,9 +23,8 @@ import {
   randomSecret,
 } from './engine/syncCore.ts'
 
-const FN = 'https://sokdnapkjlmnfqjpjulz.supabase.co/functions/v1/sync'
-const KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNva2RuYXBramxtbmZxanBqdWx6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNjYxNzIsImV4cCI6MjEwMjk0MjE3Mn0.QxqLX9IstqaZS5DaoGbjUWilfwRoxohlICUvRj1E8Ww'
+const FN = FUNCOES + '/sync'
+const KEY = SUPABASE_ANON
 
 interface SyncKv {
   enabled: boolean
@@ -277,6 +277,13 @@ export async function claimPairCode(code: string, device: string): Promise<void>
 
 /** Desliga neste aparelho (não mexe na nuvem nem nas músicas locais). */
 export async function disableSync(): Promise<void> {
+  // para tudo o que estava agendado antes de esquecer a chave, senão sobra
+  // uma ronda batendo na nuvem de um conjunto que este aparelho não é mais
+  paraRonda()
+  if (timer) {
+    clearTimeout(timer)
+    timer = null
+  }
   kv = { enabled: false, id: '', rawKey: '', device: '', lastSeen: 0, lastHash: '' }
   cryptoKey = null
   await saveKv()

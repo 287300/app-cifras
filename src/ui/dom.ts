@@ -72,12 +72,43 @@ export function confirmDialog(message: string, confirmLabel = 'Excluir'): Promis
 
 /** Folha inferior; retorna função de fechar. */
 export function sheet(...content: (Node | string | null | undefined | false)[]): () => void {
+  return sheetComSaida(undefined, ...content)
+}
+
+/**
+ * Folha inferior que AVISA quem a abriu quando some pelo toque fora.
+ *
+ * Toda folha do app fecha ao tocar no fundo escuro; é o gesto que a pessoa já
+ * conhece. Quem espera uma resposta da folha (uma pergunta de sim ou não)
+ * precisa saber desse toque, senão fica esperando para sempre uma resposta
+ * que nunca vem.
+ */
+export function sheetComSaida(
+  onSaida: (() => void) | undefined,
+  ...content: (Node | string | null | undefined | false)[]
+): () => void {
+  let vivo = true
+  const fecha = () => {
+    if (!vivo) return
+    vivo = false
+    wrap.remove()
+  }
   const wrap = h(
     'div',
     { className: 'sheetwrap' },
-    h('div', { className: 'backdrop', onClick: () => wrap.remove() }),
+    h(
+      'div',
+      {
+        className: 'backdrop',
+        onClick: () => {
+          if (!vivo) return
+          fecha()
+          onSaida?.()
+        },
+      }
+    ),
     h('div', { className: 'sheet' }, h('div', { className: 'grab' }), ...content)
   )
   document.body.append(wrap)
-  return () => wrap.remove()
+  return fecha
 }

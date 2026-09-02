@@ -1,12 +1,14 @@
 // Ponto de entrada: registra o service worker (offline), carrega o estado
 // e liga o roteador às telas, com a barra de abas nas telas de lista.
 
+import { initConta } from './conta.ts'
+import { ligaGuardaDaBiblioteca } from './dono.ts'
 import { currentRoute, navigate, onRouteChange, type Route } from './router.ts'
 import { VERSAO } from './version.ts'
 import { store } from './store.ts'
 import { initSync } from './sync.ts'
 import { h, clear } from './ui/dom.ts'
-import { addScreen, botaoScreen, buscarScreen, cargaScreen, editScreen, libraryScreen, moreScreen, planbScreen, playerScreen, showEditScreen, showsScreen, songScreen } from './ui/screens.ts'
+import { addScreen, avisoSimples, botaoScreen, buscarScreen, cargaScreen, editScreen, libraryScreen, moreScreen, perguntaTrocaDeConta, planbScreen, playerScreen, showEditScreen, showsScreen, songScreen } from './ui/screens.ts'
 
 const rootEl = document.getElementById('root')!
 
@@ -122,6 +124,11 @@ async function boot(): Promise<void> {
   }
 
   await store.init()
+  // a conta vem antes de desenhar: o link de entrada chega pendurado no
+  // endereço e precisa ser consumido antes do roteador olhar para o #
+  await initConta()
+  // de quem é a biblioteca deste aparelho: adota na 1ª conta, nunca mistura
+  ligaGuardaDaBiblioteca(perguntaTrocaDeConta, avisoSimples)
   void initSync() // o carteiro entre aparelhos (não bloqueia a abertura)
   render(currentRoute())
   onRouteChange(render)

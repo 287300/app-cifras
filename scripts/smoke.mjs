@@ -62,8 +62,14 @@ const errors = []
 page.on('pageerror', (e) => errors.push(String(e)))
 // o YouTube não é alcançável daqui: o player do ensaio falhar no teste é esperado
 const externo = (t) => /ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|youtube/i.test(t)
+// alguns testes provocam recusa de propósito (código de entrada errado): o
+// navegador registra o 403 no console e isso NÃO é defeito do app
+let ruidoEsperado = null
 page.on('console', (m) => {
-  if (m.type() === 'error' && !externo(m.text())) errors.push(m.text())
+  if (m.type() !== 'error') return
+  const t = m.text()
+  if (externo(t) || (ruidoEsperado && ruidoEsperado.test(t))) return
+  errors.push(t)
 })
 
 try {
@@ -631,6 +637,232 @@ try {
   check('VÍDEO: a tela não escorrega para o lado', comVideo.pagina === comVideo.janela)
   check('VÍDEO: sem o vídeo a cifra segue centralizada e larga (' + semVideo + 'px)', semVideo > 850)
   await ctxL.close()
+
+  // ---------- conta: entrar pelo e-mail, sem senha (servidor de auth simulado) ----------
+  const CODIGO_BOM = '424242'
+  let emailPedido = ''
+  let emailsMandados = 0
+  let userOk = true
+  let userId = 'user-1'
+  const sessaoFalsa = (email) => ({
+    access_token: 'crachá-de-mentira',
+    refresh_token: 'renova-de-mentira',
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    user: { id: userId, email },
+  })
+  await page.route('**/auth/v1/**', (route) => {
+    const url = route.request().url()
+    const body = route.request().postDataJSON?.() || {}
+    if (url.includes('/otp')) {
+      emailPedido = body.email || ''
+      emailsMandados++
+      return route.fulfill({ json: {} })
+    }
+    if (url.includes('/verify')) {
+      if (body.token === CODIGO_BOM) return route.fulfill({ json: sessaoFalsa(body.email) })
+      return route.fulfill({ status: 403, json: { error_code: 'otp_expired', msg: 'Token has expired or is invalid' } })
+    }
+    if (url.includes('/token')) {
+      // devagar de propósito: é durante ESTA espera que o teste manda sair
+      return new Promise((r) => setTimeout(r, 700)).then(() => route.fulfill({ json: sessaoFalsa(emailPedido) }))
+    }
+    if (url.includes('/user')) {
+      if (!userOk) return route.fulfill({ status: 401, json: { msg: 'invalid claim: missing sub claim' } })
+      return route.fulfill({ json: { id: userId, email: emailPedido } })
+    }
+    if (url.includes('/logout')) return route.fulfill({ status: 204, body: '' })
+    return route.fulfill({ status: 400, json: { msg: 'rota não simulada' } })
+  })
+
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+  check('CONTA: a tela Mais oferece entrar pelo e-mail', true)
+  check('CONTA: nenhum campo de senha existe no app', (await page.locator('input[type="password"]').count()) === 0)
+
+  // erro de dedo no provedor vira pergunta, não recusa
+  await page.fill('input[placeholder="seu@email.com"]', 'eder@gmail.con')
+  await page.click('button:has-text("Entrar com meu e-mail")')
+  await page.waitForTimeout(150)
+  const sugestao = await page.textContent('.content .hint:has-text("Você quis dizer")').catch(() => '')
+  check('CONTA: gmail.con vira "você quis dizer gmail.com?"', sugestao.includes('eder@gmail.com'))
+  check('CONTA: e-mail com erro de dedo não é mandado para ninguém', emailsMandados === 0)
+  await page.click('button:has-text("Sim, corrigir")')
+
+  await page.waitForSelector('.sheet input[placeholder="000000"]', { timeout: 8000 })
+  check('CONTA: o código é pedido para o e-mail corrigido', emailPedido === 'eder@gmail.com')
+  const textoSheet = await page.textContent('.sheet')
+  check('CONTA: a folha diz para onde o e-mail foi', textoSheet.includes('eder@gmail.com'))
+
+  // código errado: recado em português, sem erro técnico e sem deslogar nada
+  ruidoEsperado = /403 \(Forbidden\)/
+  await page.fill('.sheet input[placeholder="000000"]', '111111')
+  await page.waitForTimeout(500)
+  const recado = await page.textContent('.sheet .hint')
+  check('CONTA: código errado dá recado em português (' + recado.slice(0, 28) + '…)', /venceu|Código errado/.test(recado) && !/token|invalid/i.test(recado))
+
+  await page.fill('.sheet input[placeholder="000000"]', CODIGO_BOM)
+  await page.waitForSelector('.sheet h2:has-text("Pronto")', { timeout: 8000 })
+  await page.click('.sheet button:has-text("Ok")')
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  ruidoEsperado = null
+  const logado = await page.textContent('.content')
+  check('CONTA: o app mostra quem entrou', logado.includes('Entrando como eder@gmail.com'))
+
+  // a sessão sobrevive a fechar e abrir o app
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  check('CONTA: reabrir o app continua logado, sem digitar nada', true)
+
+  // e sobrevive ao modo avião: quem já entrou não é expulso por falta de sinal
+  await page.context().setOffline(true)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  check('CONTA: sem internet quem já entrou continua entrando', true)
+  await page.context().setOffline(false)
+
+  await page.click('button:has-text("Sair da conta")')
+  await page.waitForSelector('.confirmbox', { timeout: 5000 })
+  await page.click('.confirmbox .btn.danger')
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+  const musicasDepois = await page.evaluate(() => document.querySelector('.content .hint').textContent)
+  check('CONTA: sair volta para a tela de entrar', true)
+  check('CONTA: sair não apaga as músicas do aparelho (' + musicasDepois.split('·')[0].trim() + ')', !musicasDepois.startsWith('0 música'))
+
+  // ---------- o outro caminho de entrar: o link do e-mail ----------
+  const linkCom = (frag) => `http://localhost:${PORT}/?t=${Date.now()}#${frag}`
+  // quase vencido de propósito: assim o evento 'online' dispara mesmo a renovação
+  const CRACHA = 'access_token=crachá-do-link&refresh_token=renova-do-link&expires_in=60&type=magiclink'
+
+  // link de estranho (ou já usado): o servidor recusa e NINGUÉM entra
+  ruidoEsperado = /401 \(Unauthorized\)/
+  userOk = false
+  await page.goto(linkCom(CRACHA))
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  await page.waitForSelector('.content .hint:has-text("não vale mais")', { timeout: 8000 })
+  check('LINK: crachá que o servidor recusa não entra na conta de ninguém', (await page.locator('button:has-text("Sair da conta")').count()) === 0)
+  ruidoEsperado = null
+
+  // link vencido: o app explica, em vez de abrir mudo na tela de entrar
+  await page.goto(linkCom('error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired'))
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  const recadoLink = await page.textContent('.content')
+  check('LINK: link vencido explica o motivo em português', /venceu|não foi aceito|não vale mais/.test(recadoLink))
+
+  // link bom: entra sem digitar nada
+  userOk = true
+  await page.goto(linkCom(CRACHA))
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  const depoisDoLink = await page.evaluate(() => ({ hash: location.hash, href: location.href }))
+  check('LINK: tocar no link do e-mail entra sem digitar nada', true)
+  check('LINK: o crachá some do endereço assim que é usado', !depoisDoLink.href.includes('access_token') && depoisDoLink.hash === '#/more')
+
+  // uma renovação em voo não pode ressuscitar a conta depois de sair
+  await page.evaluate(() => { window.dispatchEvent(new Event('online')) })
+  await page.waitForTimeout(80) // a renovação saiu e está esperando os 700 ms do servidor
+  await page.click('button:has-text("Sair da conta")')
+  await page.waitForSelector('.confirmbox', { timeout: 5000 })
+  await page.click('.confirmbox .btn.danger')
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+  await page.waitForTimeout(1200) // tempo de sobra para a renovação atrasada voltar
+  check('CONTA: renovação em voo não ressuscita a conta depois de sair', (await page.locator('button:has-text("Sair da conta")').count()) === 0)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+  check('CONTA: depois de sair, reabrir o app continua fora da conta', true)
+  // ---------- de quem é a biblioteca: adotar sim, herdar nunca ----------
+  const contaAcervo = () => page.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const pega = (loja) => new Promise((res, rej) => { const t = db.transaction(loja, 'readonly'); const r = t.objectStore(loja).getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const [musicas, shows] = await Promise.all([pega('songs'), pega('shows')])
+    db.close()
+    return { musicas: musicas.length, shows: shows.length }
+  })
+  // a limpeza mexe no banco depois de a tela já ter mudado: espera o acervo
+  const esperaAcervo = async (ok, oque) => {
+    for (let i = 0; i < 60; i++) {
+      const a = await contaAcervo()
+      if (ok(a)) return a
+      await page.waitForTimeout(100)
+    }
+    throw new Error('acervo não chegou no estado esperado: ' + oque)
+  }
+  const entraCom = async (email) => {
+    await page.evaluate(() => { location.hash = '#/more' })
+    await page.waitForSelector('input[placeholder="seu@email.com"]', { timeout: 8000 })
+    await page.fill('input[placeholder="seu@email.com"]', email)
+    await page.click('button:has-text("Entrar com meu e-mail")')
+    await page.waitForSelector('.sheet input[placeholder="000000"]', { timeout: 8000 })
+    await page.fill('.sheet input[placeholder="000000"]', CODIGO_BOM)
+  }
+
+  const acervoAntes = await contaAcervo()
+  check('DONO: o aparelho do teste tem repertório para arriscar (' + acervoAntes.musicas + ' músicas)', acervoAntes.musicas > 0)
+
+  // a cópia de segurança feita ANTES de qualquer troca precisa voltar depois
+  const baixando = page.waitForEvent('download')
+  await page.click('button:has-text("⬇ Exportar backup")')
+  const arquivo = await baixando
+  const backupAntes = await readFile(await arquivo.path(), 'utf8')
+  check('DONO: a cópia de segurança sai com o repertório inteiro', JSON.parse(backupAntes).songs.length === acervoAntes.musicas)
+
+  // outra conta entrando: o app AVISA e não mistura nada
+  userId = 'user-2'
+  await entraCom('outro@gmail.com')
+  await page.waitForSelector('.sheet h2:has-text("Este aparelho já tem repertório")', { timeout: 8000 })
+  const textoTroca = await page.textContent('.sheet')
+  check('DONO: a troca de conta avisa o que está em jogo', textoTroca.includes(acervoAntes.musicas + ' músicas'))
+
+  // tocar fora da folha é o gesto de sempre no app: vale como cancelar, e não
+  // pode deixar o app pendurado esperando uma resposta que nunca vem
+  await page.click('.sheetwrap .backdrop')
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+  const depoisDoToqueFora = await contaAcervo()
+  check('DONO: tocar fora da folha cancela e não apaga nada', depoisDoToqueFora.musicas === acervoAntes.musicas)
+
+  // e o app continua respondendo depois disso (a decisão não ficou travada)
+  await entraCom('outro@gmail.com')
+  await page.waitForSelector('.sheet h2:has-text("Este aparelho já tem repertório")', { timeout: 8000 })
+  check('DONO: depois do toque fora o guarda continua funcionando', true)
+
+  // cancelar mantém tudo e não entra
+  await page.click('.sheet button:has-text("Cancelar e manter o repertório")')
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+  const depoisDoCancelar = await contaAcervo()
+  check('DONO: cancelar a troca não apaga nada', depoisDoCancelar.musicas === acervoAntes.musicas && depoisDoCancelar.shows === acervoAntes.shows)
+
+  // confirmar começa limpo: a conta nova não herda repertório de ninguém
+  await entraCom('outro@gmail.com')
+  await page.waitForSelector('.sheet h2:has-text("Este aparelho já tem repertório")', { timeout: 8000 })
+  check('DONO: o botão que apaga nasce travado até a cópia ser guardada', await page.isDisabled('.sheet button.danger'))
+  const baixando2 = page.waitForEvent('download')
+  await page.click('.sheet button:has-text("Guardar uma cópia antes")')
+  await baixando2
+  check('DONO: guardada a cópia, o botão que apaga libera', !(await page.isDisabled('.sheet button.danger')))
+  await page.click('.sheet button:has-text("Começar limpo nesta conta")')
+  await page.waitForSelector('.confirmbox', { timeout: 5000 })
+  check('DONO: apagar tudo ainda pede uma confirmação a mais', true)
+  await page.click('.confirmbox .btn.danger')
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  const contaNova = await esperaAcervo((a) => a.musicas === 0 && a.shows === 0, 'conta nova vazia').catch(() => contaAcervo())
+  check('DONO: conta nova começa sem música nenhuma', contaNova.musicas === 0)
+  check('DONO: conta nova começa sem show nenhum', contaNova.shows === 0)
+  check('DONO: a sincronização da conta anterior fica desligada', (await page.locator('button:has-text("Ativar sincronização"), button:has-text("Começar um conjunto novo aqui")').count()) > 0)
+
+  // e a cópia guardada antes volta inteira
+  await page.setInputFiles('input[type="file"][accept*="json"]', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backupAntes) })
+  await page.waitForSelector('.sheet h2:has-text("Backup importado")', { timeout: 8000 })
+  await page.click('.sheet button:has-text("Ok")')
+  const depoisDoImport = await contaAcervo()
+  check('DONO: a cópia de antes do login volta inteira depois (' + depoisDoImport.musicas + ' músicas)', depoisDoImport.musicas === acervoAntes.musicas && depoisDoImport.shows === acervoAntes.shows)
+
+  await page.unroute('**/auth/v1/**')
 
   // marca de versão: precisa vir da rede, senão o app nunca percebe cache pela metade
   const marca = await page.evaluate(async () => {
