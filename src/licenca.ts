@@ -47,6 +47,18 @@ interface Guardada extends Licenca {
 
 let licenca: Licenca = SEM_CONTA
 let dono = '' // userId de quem esta licença pertence
+/**
+ * A linha que estava no banco do aparelho, guardada mesmo quando ainda não deu
+ * para adotar.
+ *
+ * Existe por causa de uma corrida real: quem entra pelo LINK do e-mail tem a
+ * conta confirmada por fora do arranque, então esta função roda antes de a
+ * conta existir e não adota nada. Sem esta lembrança, a chegada da conta caía
+ * em "userId diferente de dono" (que ainda era vazio), o app concluía que era
+ * OUTRA pessoa e gravava plano grátis por cima da licença paga. Em modo avião
+ * isso não tinha volta: quem pagou via a biblioteca travar em 8 músicas.
+ */
+let guardadaNoDisco: Guardada | null = null
 let foiPagante = false
 let ultimaTentativa = 0
 let pendente = false // saiu do palco: perguntar assim que der
@@ -101,6 +113,13 @@ export function avisoDaLicenca(): string | null {
   return textoDoAviso(licenca, Date.now())
 }
 
+/** Passa a valer a licença que estava no banco do aparelho. Não toca em rede. */
+function adota(linha: Guardada): void {
+  licenca = { plano: linha.plano, validaAte: linha.validaAte, conferidaEm: linha.conferidaEm, renova: linha.renova }
+  dono = linha.userId
+  foiPagante = linha.jaFoiPagante === true || linha.plano === 'pago'
+}
+
 async function guarda(nova: Licenca, userId: string): Promise<void> {
   const antes = licenca
   licenca = nova
@@ -110,6 +129,7 @@ async function guarda(nova: Licenca, userId: string): Promise<void> {
   if (nova.plano === 'pago') foiPagante = true
   try {
     const linha: Guardada = { ...nova, userId, jaFoiPagante: foiPagante }
+    guardadaNoDisco = linha
     await db.putKv(CHAVE, linha)
   } catch {
     // sem banco: vale para esta sessão e pronto
@@ -203,12 +223,11 @@ function ligaRonda(): void {
 export async function initLicenca(): Promise<void> {
   try {
     const linha = (await db.getKv(CHAVE))?.value as Guardada | undefined
+    if (linha?.userId) guardadaNoDisco = linha
     const conta = contaAtual()
     // resposta de outra conta não vale para esta pessoa
     if (linha && conta && linha.userId && linha.userId === conta.userId) {
-      licenca = { plano: linha.plano, validaAte: linha.validaAte, conferidaEm: linha.conferidaEm, renova: linha.renova }
-      dono = linha.userId
-      foiPagante = linha.jaFoiPagante === true || linha.plano === 'pago'
+      adota(linha)
       // a tela já pode estar desenhada com o estado inicial: sem este aviso,
       // quem abre o app em modo avião vê "grátis" mesmo pagando
       notify()
@@ -231,10 +250,17 @@ export async function initLicenca(): Promise<void> {
       return
     }
     if (conta.userId !== dono) {
-      // conta nova neste aparelho: a licença da anterior não vale mais, e o
-      // histórico de pagamento dela também não
-      foiPagante = false
-      void guarda(SEM_CONTA, conta.userId)
+      if (guardadaNoDisco && guardadaNoDisco.userId === conta.userId) {
+        // é a MESMA pessoa: a licença dela só não tinha sido adotada porque a
+        // conta chegou depois do arranque (caminho do link). Adotar, não apagar
+        adota(guardadaNoDisco)
+        notify()
+      } else {
+        // conta nova neste aparelho: a licença da anterior não vale mais, e o
+        // histórico de pagamento dela também não
+        foiPagante = false
+        void guarda(SEM_CONTA, conta.userId)
+      }
     }
     void consultaAgora(true)
   })

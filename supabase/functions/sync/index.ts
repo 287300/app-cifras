@@ -71,14 +71,26 @@ interface Row {
   payload: string
   device: string
   updated_at: string
+  dono?: string | null
 }
 
-/** Quem é o dono deste crachá, segundo o servidor de contas. Null se não vale. */
+/** O servidor de contas está fora do ar, e não a pessoa sem crachá. */
+class ContasForaDoAr extends Error {}
+
+/**
+ * Quem é o dono deste crachá, segundo o servidor de contas. Null se não vale.
+ *
+ * A separação entre "crachá ruim" e "servidor de contas fora do ar" não é
+ * detalhe: tratar as duas coisas como 401 fazia o app dizer "é preciso entrar
+ * com o seu e-mail" logo abaixo do cartão que dizia "Entrando como fulano".
+ * Dois cartões se contradizendo na mesma tela, para quem não usa tecnologia.
+ */
 async function quemE(token: string): Promise<string | null> {
   if (!token) return null
   const res = await fetch(BASE + '/auth/v1/user', {
     headers: { apikey: SERVICE, Authorization: 'Bearer ' + token },
   })
+  if (res.status >= 500) throw new ContasForaDoAr('servidor de contas fora do ar')
   if (!res.ok) return null
   const u = (await res.json()) as { email?: string }
   const email = (u.email ?? '').trim().toLowerCase()
@@ -99,10 +111,22 @@ async function estaPagando(email: string): Promise<boolean> {
 }
 
 async function getRow(id: string): Promise<Row | null> {
-  const res = await fetch(`${REST}?id=eq.${id}&select=id,payload,device,updated_at`, { headers: HEADERS })
+  const res = await fetch(`${REST}?id=eq.${id}&select=id,payload,device,updated_at,dono`, { headers: HEADERS })
   if (!res.ok) throw new Error('banco respondeu ' + res.status)
   const rows = (await res.json()) as Row[]
   return rows[0] ?? null
+}
+
+/**
+ * Esta linha é desta pessoa?
+ *
+ * Linha sem dono é linha de antes desta regra: adota quem chegou primeiro, e a
+ * partir daí ela tem dono. Linha com outro dono não existe para quem pergunta:
+ * responder "essa é de outra pessoa" já entregaria que o id acertou em alguém.
+ */
+function daPessoa(row: { dono?: string | null } | null, email: string): boolean {
+  if (!row) return true
+  return !row.dono || row.dono === email
 }
 
 Deno.serve(async (req: Request) => {
@@ -126,6 +150,8 @@ Deno.serve(async (req: Request) => {
   try {
     email = await quemE(token)
   } catch {
+    // 502 e não 401: problema nosso nunca pode virar "entre na sua conta" para
+    // quem já está dentro
     return json({ error: 'não deu para conferir sua conta agora' }, 502, origin)
   }
   if (!email) return json({ error: 'entre na sua conta primeiro' }, 401, origin)
@@ -154,20 +180,33 @@ Deno.serve(async (req: Request) => {
       if (body.op === 'pair-create') {
         const payload = body.payload ?? ''
         if (!payload || payload.length > 20_000) return json({ error: 'payload inválido' }, 400, origin)
+        // o código pendente de outra pessoa não pode ser sobrescrito: seria
+        // plantar um conjunto no aparelho novo dela
+        const jaLa = await fetch(`${PAIR}?id=eq.${pairId}&select=dono`, { headers: HEADERS })
+        if (!jaLa.ok) throw new Error('banco respondeu ' + jaLa.status)
+        const antes = (await jaLa.json()) as Array<{ dono?: string | null }>
+        if (!daPessoa(antes[0] ?? null, email)) {
+          return json({ error: 'código em uso, peça outro no aparelho antigo' }, 409, origin)
+        }
         const res = await fetch(PAIR, {
           method: 'POST',
           headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates' },
-          body: JSON.stringify([{ id: pairId, payload, created_at: new Date().toISOString() }]),
+          body: JSON.stringify([{ id: pairId, payload, dono: email, created_at: new Date().toISOString() }]),
         })
         if (!res.ok) throw new Error('banco respondeu ' + res.status)
         return json({ ok: true, expiresInMin: PAIR_TTL_MIN }, 200, origin)
       }
 
-      const res = await fetch(`${PAIR}?id=eq.${pairId}&select=payload,created_at`, { headers: HEADERS })
+      const res = await fetch(`${PAIR}?id=eq.${pairId}&select=payload,created_at,dono`, { headers: HEADERS })
       if (!res.ok) throw new Error('banco respondeu ' + res.status)
-      const rows = (await res.json()) as Array<{ payload: string; created_at: string }>
+      const rows = (await res.json()) as Array<{ payload: string; created_at: string; dono?: string | null }>
       const row = rows[0]
-      if (!row) return json({ error: 'código não encontrado ou já usado' }, 404, origin)
+      // A MESMA RESPOSTA para "não existe" e "é de outra pessoa". São só um
+      // milhão de códigos possíveis: se a recusa fosse diferente, varrer todos
+      // viraria um mapa de quem está pareando agora
+      if (!row || !daPessoa(row, email)) {
+        return json({ error: 'código não encontrado ou já usado' }, 404, origin)
+      }
       await fetch(`${PAIR}?id=eq.${pairId}`, { method: 'DELETE', headers: HEADERS }) // uso único
       if (Date.parse(row.created_at) < Date.now() - PAIR_TTL_MIN * 60_000) {
         return json({ error: 'código expirado' }, 410, origin)
@@ -184,7 +223,8 @@ Deno.serve(async (req: Request) => {
   try {
     if (body.op === 'pull') {
       const row = await getRow(id)
-      if (!row) return json({ empty: true }, 200, origin)
+      // linha de outra pessoa responde igual a linha que não existe
+      if (!row || !daPessoa(row, email)) return json({ empty: true }, 200, origin)
       return json({ payload: row.payload, updatedAt: Date.parse(row.updated_at), device: row.device }, 200, origin)
     }
 
@@ -196,6 +236,7 @@ Deno.serve(async (req: Request) => {
       const base = typeof body.baseUpdatedAt === 'number' ? body.baseUpdatedAt : 0
 
       const cur = await getRow(id)
+      if (!daPessoa(cur, email)) return json({ error: 'esta cópia é de outra conta' }, 403, origin)
       if (cur && Math.abs(Date.parse(cur.updated_at) - base) > 1500) {
         // a nuvem mudou desde a última vista deste aparelho: devolve para mesclar
         return json(
@@ -209,7 +250,7 @@ Deno.serve(async (req: Request) => {
       const res = await fetch(REST, {
         method: 'POST',
         headers: { ...HEADERS, Prefer: 'resolution=merge-duplicates,return=representation' },
-        body: JSON.stringify([{ id, payload, device, updated_at: now }]),
+        body: JSON.stringify([{ id, payload, device, dono: email, updated_at: now }]),
       })
       if (!res.ok) throw new Error('banco respondeu ' + res.status)
       const saved = ((await res.json()) as Row[])[0]

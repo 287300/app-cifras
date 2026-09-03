@@ -1,12 +1,12 @@
 // Telas do app: shows e setlist, biblioteca, adicionar/editar música,
 // busca plano B e mais (backup). A leitura de palco vive em reader.ts.
 
-import { contaAtual, entrarComCodigo, onContaChange, pedirCodigo, recadoDoLink, sair } from '../conta.ts'
+import { contaAtual, entrarComCodigo, ErroDaNuvem, onContaChange, pedirCodigo, recadoDoLink, sair } from '../conta.ts'
 import { ajustaDonoPelaTela, type AvisoDeTroca, type RespostaDaTroca } from '../dono.ts'
 import { CONTATO, LINK, PRECO, VANTAGENS } from '../compra.ts'
 import { quantoFalta, recadoAoSalvar, travadosNoPlano } from '../engine/limites.ts'
 import { avisoDaLicenca, jaFoiPagante, limitesValem, onLicencaChange, planoAtual } from '../licenca.ts'
-import { normalizaCodigo, sugestaoDeEmail } from '../engine/conta.ts'
+import { codigoMorreu, normalizaCodigo, sugestaoDeEmail } from '../engine/conta.ts'
 import { motivoParaAssinar, textoDoBloqueio } from '../engine/sincronizacao.ts'
 import { parseCifra } from '../engine/parse.ts'
 import { extractImportHeader } from '../engine/importHeader.ts'
@@ -22,14 +22,72 @@ import { readerScreen, releaseWakeLock } from './reader.ts'
 
 // ---------- pedaços comuns ----------
 
-function topbar(title: string, opts: { back?: Route; action?: HTMLElement } = {}): HTMLElement {
+function topbar(title: string, opts: { back?: Route; action?: HTMLElement | (HTMLElement | null)[] } = {}): HTMLElement {
+  const acoes = Array.isArray(opts.action) ? opts.action.filter((e): e is HTMLElement => e !== null) : opts.action ? [opts.action] : []
   return h(
     'div',
     { className: 'topbar' },
     opts.back ? h('button', { className: 'iconbtn', 'aria-label': 'Voltar', onClick: () => navigate(opts.back!) }, '‹') : null,
     h('h1', null, title),
-    opts.action ?? null
+    ...acoes
   )
+}
+
+/**
+ * O convite para entrar ou assinar, no alto das duas telas de sempre.
+ *
+ * Antes disso a conta só existia dentro de "Mais", e nada nas telas principais
+ * falava em conta ou assinatura: a pessoa descobria que havia um plano só na
+ * hora em que era barrada, ao criar o segundo show ou salvar a nona música.
+ * Para vender, isso é tarde demais.
+ *
+ * Some sozinho para quem assina. Quem paga não precisa ver botão de venda, e a
+ * tela dele volta a ser exatamente a de antes. Também não vale aba nova: uma
+ * quarta aba tiraria um quarto da barra para sempre por causa de algo que o
+ * assinante nunca mais usa, e essa barra é a mobília que o Eder lê no escuro.
+ */
+function convite(): HTMLElement {
+  // Um invólucro fixo, com o conteúdo trocado por dentro. A primeira versão
+  // disto se REDESENHAVA criando um botão novo, e cada botão novo assinava os
+  // avisos de novo: como o aviso percorre a lista de assinantes e a lista
+  // crescia durante o próprio percurso, o navegador entrava em laço e a aba
+  // morria. Assinar UMA vez, cá fora, e só mexer no conteúdo.
+  const wrap = h('span', { style: { display: 'inline-flex' } })
+
+  const desenha = () => {
+    if (contaAtual() !== null && planoAtual() === 'pago') {
+      wrap.replaceChildren() // quem assina não vê botão de venda
+      return
+    }
+    const semConta = contaAtual() === null
+    wrap.replaceChildren(
+      h(
+        'button',
+        {
+          className: 'iconbtn',
+          style: { width: 'auto', padding: '0 12px', fontSize: '15px', color: 'var(--accent)' },
+          'aria-label': semConta ? 'Entrar na sua conta' : 'Assinar',
+          onClick: () => (semConta ? navigate({ name: 'more' }) : folhaDeAssinatura(motivoParaAssinar())),
+        },
+        semConta ? 'Entrar' : 'Assinar'
+      )
+    )
+  }
+
+  // conta e plano chegam do banco do aparelho DEPOIS do primeiro desenho da
+  // tela, e mudam de novo quando a pessoa entra ou paga
+  const aviso = () => {
+    if (!wrap.isConnected) {
+      un1()
+      un2()
+      return
+    }
+    desenha()
+  }
+  const un1 = onContaChange(aviso)
+  const un2 = onLicencaChange(aviso)
+  desenha()
+  return wrap
 }
 
 function empty(icon: string, text: string): HTMLElement {
@@ -166,7 +224,7 @@ export function showsScreen(): HTMLElement {
     },
     '＋'
   )
-  root.append(topbar('Shows', { action: add }))
+  root.append(topbar('Shows', { action: [convite(), add] }))
   const content = h('div', { className: 'content' })
   const shows = store.showList()
   if (shows.length === 0) {
@@ -752,7 +810,7 @@ export function libraryScreen(): HTMLElement {
     },
     '＋'
   )
-  root.append(topbar('Biblioteca', { action: add }))
+  root.append(topbar('Biblioteca', { action: [convite(), add] }))
   const content = h('div', { className: 'content' })
   const search = h('input', { placeholder: 'Buscar por nome ou artista…', style: { marginBottom: '12px' } }) as HTMLInputElement
   const list = h('div', { className: 'list' })
@@ -1170,10 +1228,22 @@ function codigoSheet(email: string, onDone: () => void): void {
   const reenviar = h('button', { className: 'btn block', style: { marginTop: '10px' } }, 'Mandar outro e-mail') as HTMLButtonElement
 
   let enviando = false
-  let jaRecusado = '' // não repete sozinho um código que o servidor já negou
+  /**
+   * Código que o SERVIDOR negou. Só entra aqui recusa de verdade: falta de
+   * sinal e servidor fora do ar não dizem nada sobre o código, e marcá-lo como
+   * morto deixaria a pessoa tocando em "Entrar" sem nada acontecer, com os 6
+   * números certos na tela.
+   */
+  let jaRecusado = ''
   const entrar = async () => {
     const codigo = normalizaCodigo(input.value)
-    if (enviando || codigo === jaRecusado) return
+    // repetir sozinho um código já negado só gasta rede; no toque deliberado do
+    // botão a pessoa merece ver o motivo de novo em vez de um botão morto
+    if (enviando) return
+    if (codigo === jaRecusado) {
+      status.textContent = 'Esse código o servidor já recusou. Confira os 6 números do e-mail mais novo, ou peça outro aqui embaixo.'
+      return
+    }
     enviando = true
     btn.textContent = 'Entrando…'
     btn.disabled = true
@@ -1203,7 +1273,9 @@ function codigoSheet(email: string, onDone: () => void): void {
       )
       onDone()
     } catch (err) {
-      jaRecusado = codigo
+      // só marca como queimado o que o servidor realmente recusou
+      const status_ = err instanceof ErroDaNuvem ? err.status : 0
+      if (codigoMorreu(status_)) jaRecusado = codigo
       status.textContent = err instanceof Error ? err.message : 'Não deu certo.'
       btn.textContent = 'Entrar'
       btn.disabled = false
@@ -1223,7 +1295,14 @@ function codigoSheet(email: string, onDone: () => void): void {
     reenviar.disabled = true
     try {
       await pedirCodigo(email)
-      status.textContent = 'Mandamos outro e-mail para ' + email + '. Use o código mais novo.'
+      // o pedido novo aposenta o código velho no servidor. Deixar os números
+      // antigos no campo é uma armadilha: quem digita o código novo em cima
+      // acaba com doze dígitos, dos quais o app fica com os SEIS PRIMEIROS, que
+      // são justamente os mortos, e aí nada mais funciona
+      input.value = ''
+      jaRecusado = ''
+      input.focus()
+      status.textContent = 'Mandamos outro e-mail para ' + email + '. Apagamos o campo: digite o código do e-mail mais novo.'
     } catch (err) {
       status.textContent = err instanceof Error ? err.message : 'Não deu certo.'
     }
@@ -1431,13 +1510,34 @@ function syncCard(): HTMLElement {
               'Quero assinar'
             )
           : null,
+        // Este botão fica MESMO bloqueado, e o motivo é um caso real: quem
+        // acabou de pagar num aparelho novo passa alguns segundos (ou muitos,
+        // num wi-fi ruim) com o plano ainda em "grátis" enquanto a resposta do
+        // servidor não chega. Sem ele, a única saída oferecida a quem acabou de
+        // pagar seria pagar de novo.
+        !st.enabled
+          ? h(
+              'button',
+              {
+                className: 'btn block',
+                style: { marginBottom: '10px' },
+                onClick: () => claimSheet(defaultDeviceName(), render),
+              },
+              'Tenho um código de outro aparelho'
+            )
+          : null,
         st.enabled
           ? h(
               'button',
               {
                 className: 'btn block',
                 onClick: async () => {
-                  if (await confirmDialog('Desligar a sincronização neste aparelho? As músicas daqui continuam intactas.', 'Desligar')) {
+                  if (
+                    await confirmDialog(
+                      'Desligar a sincronização neste aparelho? As músicas daqui continuam intactas, mas a ligação com os outros aparelhos se perde: para voltar você vai precisar de um código novo.',
+                      'Desligar'
+                    )
+                  ) {
                     await disableSync()
                     render()
                   }

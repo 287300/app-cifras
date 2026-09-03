@@ -161,10 +161,18 @@ async function call(body: Record<string, unknown>): Promise<Response> {
   const doServidor = bloqueioDoServidor(res.status)
   if (doServidor !== 'nenhum') {
     marcaBloqueio(doServidor)
+    // sem esta linha a recusa do servidor virava um estado que reavalia() não
+    // reconhecia como mudança: quando o plano voltasse, ela sairia sem religar
+    // a ronda, e a sincronização só voltaria mandando o app para segundo plano
+    ultimoAvisado = bloqueioAtual()
     paraRonda()
+    notify()
     throw new Error(textoDoBloqueio(doServidor) as string)
   }
-  if (res.ok) marcaBloqueio('nenhum')
+  if (res.ok && marcaBloqueio('nenhum')) {
+    ultimoAvisado = bloqueioAtual()
+    notify()
+  }
   return res
 }
 
@@ -342,15 +350,36 @@ export async function enableSync(device: string): Promise<void> {
   await activate(derived.id, derived.rawKey, device)
 }
 
-async function activate(id: string, rawKey: string, device: string): Promise<void> {
+/**
+ * Passa a valer um conjunto neste aparelho: guarda a chave, olha a nuvem e liga
+ * a ronda.
+ *
+ * `guardaChaveMesmoFalhando` existe por causa de um caso que já custou caro:
+ * o código de 6 números é de USO ÚNICO e o servidor apaga a linha dele ANTES de
+ * responder. Se a primeira busca falhasse por qualquer motivo passageiro (o
+ * banco piscando, um 502) e o app apagasse a chave, a pessoa ficaria com o
+ * código queimado E sem chave: teria de gerar outro no aparelho antigo. Pior,
+ * um aparelho que já sincronizava perderia também o conjunto anterior.
+ *
+ * Por isso: quem chegou pelo código GUARDA a chave e tenta de novo depois; só o
+ * "ligar do zero", que não gasta nada de ninguém, desfaz a ativação ao falhar.
+ */
+async function activate(id: string, rawKey: string, device: string, guardaChaveMesmoFalhando = false): Promise<void> {
   cryptoKey = await importRawKey(rawKey)
   kv = { enabled: true, id, rawKey, device: device.trim() || 'Aparelho', lastSeen: 0, lastHash: '' }
   await saveKv()
   await pullNow() // 1º passo é sempre olhar a nuvem; o envio vem em seguida
   if (lastError) {
     const msg = lastError
-    await disableSync() // ativação só fica de pé com a 1ª sincronização ok
-    throw new Error(msg)
+    if (!guardaChaveMesmoFalhando) {
+      await disableSync() // ativação só fica de pé com a 1ª sincronização ok
+      throw new Error(msg)
+    }
+    // a chave fica: a ronda e o próximo retorno à frente do aparelho tentam de
+    // novo sozinhos, e a pessoa não perde o código que já usou
+    ligaRonda()
+    notify()
+    throw new Error(msg + ' O código já foi usado, então não peça outro: deixe o app aberto com internet que ele tenta sozinho.')
   }
   ligaRonda()
   notify()
@@ -389,7 +418,8 @@ export async function claimPairCode(code: string, device: string): Promise<void>
     throw new Error('Código errado. Confira os 6 números no outro aparelho.')
   }
   if (!parsed.id || !parsed.rawKey) throw new Error('Código inválido.')
-  await activate(parsed.id, parsed.rawKey, device)
+  // o código já foi gasto no servidor: a chave fica mesmo se a busca falhar
+  await activate(parsed.id, parsed.rawKey, device, true)
 }
 
 /** Desliga neste aparelho (não mexe na nuvem nem nas músicas locais). */
@@ -451,9 +481,11 @@ export async function initSync(): Promise<void> {
     try {
       cryptoKey = await importRawKey(saved.rawKey)
     } catch {
+      // chave guardada ilegível: esquece o conjunto, mas NÃO sai daqui. Sair
+      // deixava o app sem os ouvintes de conta, licença e fechamento pelo resto
+      // da sessão, e o cartão congelado na primeira pintura
       cryptoKey = null
       kv = null
-      return
     }
   }
   store.subscribe(schedulePush)

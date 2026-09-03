@@ -141,16 +141,40 @@ export function precisaRenovar(sessao: Sessao, agora: number): boolean {
 /** De qual passo veio o tropeço: muda o recado quando o servidor não explica. */
 export type PassoDaConta = 'email' | 'codigo' | 'geral'
 
+/**
+ * O servidor recusou ESTE código, ou foi o caminho até ele que falhou?
+ *
+ * A diferença decide se vale a pena tentar o mesmo código de novo, e errar isso
+ * custa caro: um wi-fi de casa de show que engole a resposta faria o app marcar
+ * como queimado um código que estava perfeito, e a pessoa ficaria tocando em
+ * "Entrar" sem nada acontecer, com os 6 números certos na tela.
+ *
+ * Só recusa vinda do servidor conta. Falta de sinal (0), tempo esgotado, limite
+ * de pedidos (429) e servidor fora do ar (5xx) não dizem nada sobre o código.
+ */
+export function codigoMorreu(status: number): boolean {
+  if (status === 0 || status === 429) return false
+  if (status >= 500) return false
+  return status >= 400
+}
+
 export function mensagemDoErro(status: number, code: string, message: string, passo: PassoDaConta = 'geral'): string {
   const texto = (message || '').toLowerCase()
   if (status === 0 || /failed to fetch|network|load failed/.test(texto)) {
     return 'Sem internet agora. Conecte e tente de novo.'
   }
+  // sem prazo no recado: o servidor de e-mail conta por hora, não por minuto, e
+  // "espere um minuto" faz a pessoa tentar, tomar a mesma recusa e concluir que
+  // o app está quebrado. Melhor dizer o que fazer do que inventar um relógio
   if (status === 429 || code === 'over_email_send_rate_limit') {
-    return 'Muitos pedidos seguidos. Espere um minuto e peça o código de novo.'
+    return 'Já pedimos e-mails demais para este endereço. Procure o último que chegou (veja também o lixo eletrônico) e use o código dele.'
   }
   if (code === 'otp_expired' || /expired/.test(texto)) {
-    return 'Esse código venceu. Peça outro e use em até 1 hora.'
+    // no passo do e-mail quem venceu foi o LINK, e mandar procurar um código
+    // que nunca existiu naquela tentativa só confunde
+    return passo === 'email'
+      ? 'Esse link já foi usado ou venceu. Peça um e-mail novo e use o código de 6 números que vem nele.'
+      : 'Esse código venceu. Peça outro e use em até 1 hora.'
   }
   // o recado do e-mail vem ANTES do de código: a recusa do servidor no passo
   // do e-mail diz "invalid format", e mandar conferir 6 números que ainda nem

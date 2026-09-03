@@ -1,15 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  codigoCompleto,
-  mensagemDoErro,
-  normalizaCodigo,
-  normalizaEmail,
-  precisaRenovar,
-  problemaNoEmail,
-  sugestaoDeEmail,
-  tokenUtilizavel,
-  type Sessao,
-} from './conta.ts'
+import { codigoCompleto, codigoMorreu, mensagemDoErro, normalizaCodigo, normalizaEmail, precisaRenovar, problemaNoEmail, sugestaoDeEmail, tokenUtilizavel, type Sessao } from './conta.ts'
 
 const AGORA = Date.UTC(2026, 8, 2, 12, 0, 0)
 const sessao = (expiraEmMin: number): Sessao => ({
@@ -91,8 +81,21 @@ describe('sessão guardada no aparelho', () => {
 })
 
 describe('recados de erro do servidor', () => {
-  test('pedidos demais viram pedido de calma, não erro técnico', () => {
-    expect(mensagemDoErro(429, 'over_email_send_rate_limit', 'rate limit')).toContain('minuto')
+  test('pedidos demais mandam usar o e-mail que já chegou, sem inventar prazo', () => {
+    const r = mensagemDoErro(429, 'over_email_send_rate_limit', 'rate limit')
+    expect(r).toMatch(/último|ultimo/i)
+    // prometer "espere um minuto" era mentira: o servidor de e-mail conta por
+    // hora. A pessoa esperava, tentava, tomava a mesma recusa e concluía que o
+    // app estava quebrado
+    expect(r).not.toContain('minuto')
+  })
+
+  test('link vencido não manda procurar um código que nunca existiu', () => {
+    const noLink = mensagemDoErro(400, 'otp_expired', 'Email link is invalid or has expired', 'email')
+    expect(noLink).toContain('link')
+    const noCodigo = mensagemDoErro(403, 'otp_expired', 'Token has expired', 'codigo')
+    expect(noCodigo).toContain('código')
+    expect(noCodigo).not.toContain('link')
   })
 
   test('código vencido e código errado dizem o que fazer', () => {
@@ -129,5 +132,32 @@ describe('recados de erro do servidor', () => {
     const m = mensagemDoErro(418, 'teapot', 'I am a teapot')
     expect(m).not.toContain('teapot')
     expect(m.length).toBeGreaterThan(10)
+  })
+})
+
+describe('o que conta como código queimado', () => {
+  test('recusa do servidor queima o código', () => {
+    expect(codigoMorreu(403)).toBe(true)
+    expect(codigoMorreu(401)).toBe(true)
+    expect(codigoMorreu(400)).toBe(true)
+    expect(codigoMorreu(422)).toBe(true)
+  })
+
+  test('falta de sinal NÃO queima: o código continua bom', () => {
+    // este era o beco sem saída: o wi-fi da casa de show engolia a resposta, o
+    // app marcava o código certo como morto e a pessoa tocava em "Entrar" sem
+    // nada acontecer, com os 6 números certos na tela
+    expect(codigoMorreu(0)).toBe(false)
+  })
+
+  test('servidor fora do ar e limite de pedidos também não queimam', () => {
+    expect(codigoMorreu(500)).toBe(false)
+    expect(codigoMorreu(502)).toBe(false)
+    expect(codigoMorreu(503)).toBe(false)
+    expect(codigoMorreu(429)).toBe(false)
+  })
+
+  test('resposta boa não queima nada', () => {
+    expect(codigoMorreu(200)).toBe(false)
   })
 })

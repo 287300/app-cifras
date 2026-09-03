@@ -68,7 +68,7 @@ export function recadoDoLink(): string {
 }
 
 /** Erro que carrega o código de situação, para separar "sem internet" de "recusado". */
-class ErroDaNuvem extends Error {
+export class ErroDaNuvem extends Error {
   status: number
   constructor(status: number, mensagem: string) {
     super(mensagem)
@@ -151,7 +151,15 @@ async function guarda(nova: Sessao | null): Promise<void> {
   anteriorGeracao = -1
   sessao = nova
   avisoDoLink = '' // recado velho não pode reaparecer numa entrada nova
-  await db.putKv('conta', nova)
+  // Safari em aba privada, cota estourada, base despejada pelo iOS: o banco
+  // pode recusar. Se isso derrubasse a função aqui, o app ficaria logado só na
+  // memória, com a tela ainda oferecendo "Entrar" e um erro em inglês por cima.
+  // Entrar sem gravar vale para esta sessão; a próxima abertura pede de novo
+  try {
+    await db.putKv('conta', nova)
+  } catch {
+    // segue: o notify abaixo é o que faz a tela contar a verdade
+  }
   notify()
 }
 
@@ -368,6 +376,17 @@ export async function initConta(): Promise<void> {
   // a conferência do link e a renovação acontecem por fora: a tela desenha já
   if (cracha) void confereEEntra(cracha)
   else renovaSePreciso()
+
+  // O link do e-mail pode chegar com o app JÁ ABERTO: no iPad e no iPhone o
+  // navegador reaproveita a aba, e mudar só o # não recarrega a página. Sem
+  // este ouvinte o crachá caía no roteador, não casava com rota nenhuma, a tela
+  // piscava para Shows e a pessoa continuava de fora — mas o servidor já tinha
+  // gasto o token de uso único, então clicar de novo dava "link inválido".
+  window.addEventListener('hashchange', () => {
+    const outro = pegaLinkDeEntrada()
+    if (outro) void confereEEntra(outro)
+    else if (avisoDoLink) notify()
+  })
 
   window.addEventListener('online', renovaSePreciso)
   // um show inteiro com o app aberto passa da validade do crachá; ao voltar

@@ -59,7 +59,7 @@ const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: { width: 834, height: 1112 }, permissions: ['clipboard-read', 'clipboard-write'] }) // iPad retrato
 const page = await ctx.newPage()
 const errors = []
-page.on('pageerror', (e) => errors.push(String(e)))
+page.on('pageerror', (e) => { errors.push(String(e)); if (process.env.VERBO) console.log('!! PAGEERROR:', String(e).slice(0,300)) })
 // o YouTube não é alcançável daqui: o player do ensaio falhar no teste é esperado
 const externo = (t) => /ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|youtube/i.test(t)
 // alguns testes provocam recusa de propósito (código de entrada errado): o
@@ -827,8 +827,28 @@ try {
   const recado = await page.textContent('.sheet .hint')
   check('CONTA: código errado dá recado em português (' + recado.slice(0, 28) + '…)', /venceu|Código errado/.test(recado) && !/token|invalid/i.test(recado))
 
+  // ---------- o beco sem saída do wi-fi ruim (achado da revisão de 03/09) ----------
+  // Antes: qualquer falha marcava o código como queimado, inclusive queda de
+  // rede. O sinal voltava, a pessoa tocava em "Entrar" com os 6 números CERTOS
+  // na tela, e nada acontecia. Sem mensagem, sem spinner, sem saída.
+  // o abort abaixo é de propósito: o console vai reclamar e isso é esperado
+  ruidoEsperado = /ERR_FAILED|Failed to load resource/
+  let redeCaida = true
+  await page.route('**/auth/v1/verify*', (route) => {
+    if (redeCaida) return route.abort('failed')
+    return route.fallback()
+  })
   await page.fill('.sheet input[placeholder="000000"]', CODIGO_BOM)
+  await page.waitForTimeout(900)
+  const semRede = await page.textContent('.sheet .hint')
+  check('CONTA: queda de rede fala de internet, não de código errado', /internet/i.test(semRede))
+
+  redeCaida = false
+  await page.click('.sheet button:has-text("Entrar")')
   await page.waitForSelector('.sheet h2:has-text("Pronto")', { timeout: 8000 })
+  check('CONTA: com o sinal de volta, o MESMO código ainda entra', true)
+  await page.unroute('**/auth/v1/verify*')
+  ruidoEsperado = null
   await page.click('.sheet button:has-text("Ok")')
   await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
   ruidoEsperado = null
