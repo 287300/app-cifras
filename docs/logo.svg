@@ -1,25 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Cifra Pronta">
   <title>Cifra Pronta</title>
   <!--
-    A marca é o diagrama de acorde: a pestana grossa, quatro cordas, duas casas
-    e os três dedos do RÉ maior, que formam um triângulo apontando para baixo.
-    É o desenho que o app mostra quando o músico bate dúvida num acorde, então
-    a marca é literalmente o produto.
-    Só duas casas de propósito: com três, as linhas se fundem com os pontos no
-    ícone de 16px. Assim, quando tudo mais some, sobram a pestana e o triângulo,
-    que é o que faz o ícone ser reconhecido de longe na tela de início.
+    A marca é a palheta: o objeto que todo violonista carrega no bolso.
+    Silhueta cheia, sem detalhe interno de propósito — é isso que a mantém
+    inteira e reconhecível no ícone de 16px, onde qualquer traço fino somiria.
+    A geometria abaixo está repetida em scripts/icons.py, que gera os PNG do
+    app (o sandbox não tem rasterizador de SVG). MEXEU NUMA, MEXA NA OUTRA.
   -->
-  <rect width="512" height="512" rx="114" fill="#ffb454"/>
-  <g stroke="#0b0d11" stroke-linecap="round" fill="none">
-    <g stroke-width="16" opacity=".34">
-      <path d="M128 148v216M213 148v216M299 148v216M384 148v216"/>
-      <path d="M128 256h256M128 364h256"/>
-    </g>
-    <path d="M128 148h256" stroke-width="32"/>
-  </g>
-  <g fill="#0b0d11">
-    <circle cx="213" cy="202" r="34"/>
-    <circle cx="384" cy="202" r="34"/>
-    <circle cx="299" cy="310" r="34"/>
-  </g>
+  <rect width="512" height="512" rx="114" fill="#12161d"/>
+  <path d="M256 112c68 0 124 26 146 72 22 48-6 112-58 164-34 34-66 56-88 56s-54-22-88-56c-52-52-80-116-58-164 22-46 78-72 146-72Z" fill="#ffb454"/>
 </svg>
