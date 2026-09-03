@@ -47,12 +47,17 @@ if (!result.success) {
   process.exit(1)
 }
 
-// 3) estáticos: tudo de web/ vai para docs/app/, menos a página de venda
+// 3) estáticos. O app leva tudo de web/, menos o que só serve à venda: as
+// fotos de tela e a marca não precisam ser pré-cacheadas no aparelho de quem
+// já é cliente, e pesam mais que o app inteiro.
+const SO_DA_VENDA = new Set(['venda.html', 'prints', 'logo.svg'])
 for (const name of readdirSync(join(ROOT, 'web'))) {
-  if (name === 'venda.html') continue // ela é a raiz, tratada logo abaixo
+  if (SO_DA_VENDA.has(name)) continue
   cpSync(join(ROOT, 'web', name), join(APP, name), { recursive: true })
 }
 cpSync(join(ROOT, 'web/venda.html'), join(OUT, 'index.html'))
+cpSync(join(ROOT, 'web/prints'), join(OUT, 'prints'), { recursive: true })
+cpSync(join(ROOT, 'web/logo.svg'), join(OUT, 'logo.svg'))
 cpSync(join(ROOT, 'web/icons'), join(OUT, 'icons'), { recursive: true }) // ícone da aba do anúncio
 
 // endereço antigo do anúncio: continua respondendo mesmo onde não há .htaccess

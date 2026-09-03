@@ -5,166 +5,428 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Cifra Pronta — suas cifras prontas para o palco</title>
 <meta name="description" content="App de cifras para quem toca. Funciona sem internet, letra grande, rolagem sozinha, tom trocado em um toque. Comece grátis.">
-<meta name="theme-color" content="#0e1116">
+<meta name="theme-color" content="#08090c">
 <link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta property="og:title" content="Cifra Pronta — suas cifras prontas para o palco">
 <meta property="og:description" content="App de cifras para quem toca. Funciona sem internet, letra grande, rolagem sozinha, tom trocado em um toque.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://cifrapronta.com.br/">
+<meta property="og:image" content="https://cifrapronta.com.br/prints/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
+<script>document.documentElement.className+=" js"</script>
 <style>
+/* ------------------------------------------------------------------
+   Clima: palco escuro. O fundo é mais fundo que o do próprio app, para
+   as fotos de tela FLUTUAREM em cima dele em vez de se dissolverem.
+   O âmbar é o mesmo dos acordes na tela, então a página e o produto
+   são visivelmente a mesma coisa.
+   Esta página assume o escuro de propósito: é um app de palco, e o
+   palco é escuro. Não há tema claro.
+------------------------------------------------------------------- */
 :root{
-  --bg:#0e1116; --raised:#171c24; --border:#2a3342;
-  --text:#e9edf2; --dim:#9aa7b8; --accent:#ffb454; --green:#57d38c;
-  --sans:-apple-system,"SF Pro Text",system-ui,Segoe UI,Roboto,sans-serif;
+  color-scheme: dark;
+  --ink:#08090c;
+  --tela:#0e1116;      /* o fundo do app, para as molduras casarem */
+  --painel:#12161d;
+  --linha:#1e2632;
+  --linha-2:#2c3746;
+  --texto:#eef1f6;
+  --dim:#8e9cb0;
+  --ambar:#ffb454;
+  --ambar-claro:#ffd08a;
+  --verde:#57d38c;
+
+  --sans:-apple-system,"SF Pro Text",system-ui,"Segoe UI",Roboto,sans-serif;
+  --display:"Bricolage Grotesque",-apple-system,system-ui,sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+
+  --gutter:22px;
+  --max:1120px;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg);color:var(--text);font:17px/1.6 var(--sans);-webkit-text-size-adjust:100%}
-.wrap{max-width:720px;margin:0 auto;padding:0 20px}
-a{color:inherit}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  background:var(--ink);color:var(--texto);
+  font:400 17px/1.6 var(--sans);
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+img{max-width:100%;height:auto;display:block}
+a{color:inherit;text-decoration:none}
 
-/* topo */
-header{padding:28px 0 8px}
-.marca{display:flex;align-items:center;gap:10px;font-weight:700;font-size:19px;letter-spacing:-.2px}
-.marca span{color:var(--accent)}
+/* o refletor: dois focos de luz que dão profundidade ao preto */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:
+    radial-gradient(64rem 40rem at 50% -14rem, rgba(255,180,84,.13), transparent 62%),
+    radial-gradient(48rem 34rem at 108% 42rem, rgba(90,130,220,.07), transparent 60%);
+}
+/* grão: sem ele o preto chapado parece um PDF, não um palco */
+body::after{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.032;
+  mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
 
-/* herói */
-.heroi{padding:44px 0 8px}
-h1{font-size:clamp(30px,7vw,46px);line-height:1.12;letter-spacing:-1px;font-weight:800;margin-bottom:18px}
-h1 em{font-style:normal;color:var(--accent)}
-.sub{font-size:clamp(17px,4vw,20px);color:var(--dim);max-width:34ch}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 var(--gutter)}
+.estreito{max-width:680px}
 
-/* botão */
-.cta{display:inline-block;background:var(--accent);color:#1a1206;font-weight:700;font-size:18px;
-     padding:16px 28px;border-radius:12px;text-decoration:none;margin-top:26px;min-height:56px;line-height:24px}
-.cta:active{background:#ffc266}
-.sob{display:block;margin-top:12px;color:var(--dim);font-size:15px}
-
-/* seções */
-section{padding:44px 0;border-top:1px solid var(--border);margin-top:44px}
-h2{font-size:clamp(22px,5vw,30px);line-height:1.2;letter-spacing:-.5px;margin-bottom:20px;font-weight:700}
-p+p{margin-top:14px}
+/* ---------- tipografia ---------- */
+h1,h2,h3,.display{font-family:var(--display);font-weight:800;letter-spacing:-.03em;line-height:1.04}
+h1{font-size:clamp(38px,10.5vw,80px)}
+h2{font-size:clamp(28px,6.6vw,46px);line-height:1.08;letter-spacing:-.028em}
+h3{font-size:19px;font-weight:600;letter-spacing:-.01em;line-height:1.25}
+.olho{
+  font:600 13px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;
+  color:var(--ambar);margin-bottom:18px;display:block;
+}
 .dim{color:var(--dim)}
+.grande{font-size:clamp(18px,4.6vw,21px);line-height:1.55;color:var(--dim)}
 
-/* a dor */
-.dor{list-style:none;display:grid;gap:14px;margin-top:8px}
-.dor li{background:var(--raised);border:1px solid var(--border);border-radius:12px;padding:16px 18px;color:var(--dim)}
-.dor b{color:var(--text);font-weight:600}
+/* ---------- topo ---------- */
+header{position:relative;z-index:3;padding:20px 0}
+.barra{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.marca{display:flex;align-items:center;gap:11px}
+.marca svg{width:34px;height:34px;flex:0 0 34px;border-radius:9px}
+.marca b{font-family:var(--display);font-weight:800;font-size:19px;letter-spacing:-.028em}
+.marca b i{font-style:normal;color:var(--ambar)}
+.entrar{
+  font-size:15px;font-weight:500;color:var(--dim);
+  padding:11px 15px;border-radius:10px;min-height:44px;display:inline-flex;align-items:center;
+  transition:color .2s,background .2s;
+}
+.entrar:hover{color:var(--texto);background:var(--painel)}
 
-/* recursos */
-.recursos{display:grid;gap:18px;margin-top:8px}
-@media(min-width:620px){.recursos{grid-template-columns:1fr 1fr;gap:22px}}
-.rec{background:var(--raised);border:1px solid var(--border);border-radius:14px;padding:20px}
-.rec h3{font-size:18px;margin-bottom:6px;font-weight:650}
-.rec p{font-size:16px;color:var(--dim)}
+/* ---------- botão ---------- */
+.cta{
+  display:inline-flex;align-items:center;justify-content:center;gap:10px;
+  background:var(--ambar);color:#170e02;
+  font:700 17px/1 var(--sans);letter-spacing:-.01em;
+  padding:19px 30px;border-radius:13px;min-height:56px;
+  box-shadow:0 1px 0 rgba(255,255,255,.35) inset, 0 14px 40px -14px rgba(255,180,84,.65);
+  transition:transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s, background .18s;
+}
+.cta:hover{background:var(--ambar-claro);transform:translateY(-2px);box-shadow:0 1px 0 rgba(255,255,255,.4) inset, 0 20px 46px -14px rgba(255,180,84,.8)}
+.cta:active{transform:translateY(0)}
+/* o anel padrão do navegador é escuro e some em cima do âmbar */
+a:focus-visible,button:focus-visible{outline:3px solid var(--ambar-claro);outline-offset:3px;border-radius:13px}
+.cta:focus-visible{outline-color:#fff}
+.cta .seta{transition:transform .18s}
+.cta:hover .seta{transform:translateX(3px)}
+.sob{display:block;margin-top:14px;color:var(--dim);font-size:15px}
 
-/* demonstração de cifra */
-.palco{background:#0b0e13;border:1px solid var(--border);border-radius:14px;padding:20px;margin-top:10px;overflow-x:auto}
-.palco pre{font-family:var(--mono);font-size:15px;line-height:2;margin:0;white-space:pre}
-@media(min-width:480px){.palco pre{font-size:17px}}
-.palco .ac{color:var(--accent);font-weight:700}
-.palco .tom{display:inline-block;background:var(--raised);border:1px solid var(--border);border-radius:8px;
-            padding:3px 10px;font-size:14px;color:var(--accent);margin-bottom:14px}
+/* ---------- herói ---------- */
+/* padding-top só: o atalho zeraria a margem lateral que vem do .wrap, e o
+   texto do herói encostava na borda da tela em qualquer tela menor que 1120 */
+.heroi{padding-top:40px;position:relative}
+.heroi h1{max-width:14ch}
+.heroi h1 em{font-style:normal;color:var(--ambar)}
+.heroi .grande{margin-top:20px;max-width:30ch}
+.heroi .acao{margin-top:34px}
 
-/* passos */
-ol.passos{list-style:none;counter-reset:p;display:grid;gap:16px;margin-top:8px}
-ol.passos li{counter-increment:p;display:flex;gap:14px;align-items:flex-start}
-ol.passos li::before{content:counter(p);flex:0 0 32px;height:32px;border-radius:50%;background:var(--accent);
-  color:#1a1206;font-weight:700;display:grid;place-items:center;font-size:16px}
+/* moldura de tela: a foto do app vira um objeto, não uma figura solta */
+.tela{
+  position:relative;border-radius:16px;overflow:hidden;
+  background:var(--tela);
+  border:1px solid var(--linha-2);
+  box-shadow:0 40px 90px -40px rgba(0,0,0,.95), 0 0 0 1px rgba(255,255,255,.02) inset;
+}
+.tela img{width:100%}
+.tela-heroi{margin-top:52px;position:relative}
+.legenda{margin-top:16px;font-size:15px;color:var(--dim);max-width:58ch}
+.tela-heroi::after{ /* a luz que vaza da tela */
+  content:"";position:absolute;inset:auto -8% -14% -8%;height:60%;z-index:-1;
+  background:radial-gradient(50% 60% at 50% 50%, rgba(255,180,84,.2), transparent 70%);
+  filter:blur(28px);
+}
 
-/* planos */
-.planos{display:grid;gap:18px;margin-top:8px}
-@media(min-width:620px){.planos{grid-template-columns:1fr 1fr}}
-.plano{background:var(--raised);border:1px solid var(--border);border-radius:14px;padding:22px}
-.plano.destaque{border-color:var(--accent)}
-.plano h3{font-size:19px;margin-bottom:4px}
-.preco{font-size:30px;font-weight:800;letter-spacing:-.5px;margin:6px 0 14px}
-.preco small{font-size:15px;font-weight:500;color:var(--dim)}
-.plano ul{list-style:none;display:grid;gap:9px;font-size:16px;color:var(--dim)}
-.plano li::before{content:"✓ ";color:var(--green);font-weight:700}
+/* ---------- faixa de provas ---------- */
+.provas{
+  margin-top:56px;border-top:1px solid var(--linha);border-bottom:1px solid var(--linha);
+  display:grid;gap:0;
+}
+.provas div{padding:22px 0;border-bottom:1px solid var(--linha)}
+.provas div:last-child{border-bottom:0}
+.provas b{display:block;font-family:var(--display);font-weight:800;font-size:17px;letter-spacing:-.02em;margin-bottom:3px}
+.provas span{color:var(--dim);font-size:15.5px}
+@media(min-width:720px){
+  .provas{grid-template-columns:repeat(3,1fr);gap:0 40px}
+  .provas div{border-bottom:0}
+}
 
-/* quem fez */
-.autor{background:var(--raised);border:1px solid var(--border);border-radius:14px;padding:22px;color:var(--dim)}
-.autor b{color:var(--text)}
+/* ---------- seções ---------- */
+section{padding:88px 0}
+@media(min-width:880px){section{padding:118px 0}}
+.regra{height:1px;background:var(--linha);border:0}
 
-/* fim */
-footer{padding:40px 0 56px;color:var(--dim);font-size:15px;text-align:center;border-top:1px solid var(--border);margin-top:44px}
-footer a{color:var(--accent);text-decoration:none}
+/* ---------- a dor ---------- */
+.dores{display:grid;gap:1px;margin-top:38px;background:var(--linha);border:1px solid var(--linha);border-radius:16px;overflow:hidden}
+@media(min-width:760px){.dores{grid-template-columns:1fr 1fr}}
+.dores li{list-style:none;background:var(--ink);padding:26px 24px}
+.dores b{display:block;font-family:var(--display);font-weight:800;font-size:18px;letter-spacing:-.02em;margin-bottom:7px}
+.dores p{color:var(--dim);font-size:16px;line-height:1.5}
+
+/* ---------- recurso com print ao lado ---------- */
+.recurso{display:grid;gap:34px;align-items:center;margin-top:76px}
+.recurso:first-of-type{margin-top:44px}
+@media(min-width:900px){
+  .recurso{grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);gap:66px}
+  /* espelhado: inverte as colunas junto, senão a foto cai na coluna estreita
+     e o print, que é a prova, encolhe até virar borrão */
+  .recurso.espelho{grid-template-columns:minmax(0,1.18fr) minmax(0,.82fr)}
+  .recurso.espelho .txt{order:2}
+  .recurso.espelho .fig{order:1}
+}
+.recurso h3{font-family:var(--display);font-weight:800;font-size:clamp(24px,5.2vw,33px);letter-spacing:-.028em;line-height:1.1;margin-bottom:14px}
+.recurso p{color:var(--dim);font-size:17.5px;line-height:1.6}
+.recurso p+p{margin-top:12px}
+
+/* ---------- transposição: antes e depois ---------- */
+.tom{display:grid;gap:14px;margin-top:38px;align-items:center}
+@media(min-width:820px){.tom{grid-template-columns:1fr auto 1fr;gap:22px}}
+.tom .flecha{
+  display:grid;place-items:center;font-size:26px;color:var(--ambar);
+  font-family:var(--display);font-weight:800;
+}
+.tom figcaption{margin-top:12px;font-size:15px;color:var(--dim);text-align:center}
+.tom figcaption b{color:var(--texto);font-weight:600}
+
+/* ---------- grade menor ---------- */
+.mais{display:grid;gap:1px;margin-top:40px;background:var(--linha);border:1px solid var(--linha);border-radius:16px;overflow:hidden}
+@media(min-width:720px){.mais{grid-template-columns:1fr 1fr 1fr}}
+.mais div{background:var(--ink);padding:26px 24px}
+.mais .ico{font-size:22px;margin-bottom:12px;display:block;line-height:1}
+.mais h3{margin-bottom:6px;font-family:var(--display);font-weight:800;font-size:18px;letter-spacing:-.02em}
+.mais p{color:var(--dim);font-size:16px;line-height:1.5}
+
+/* ---------- passos ---------- */
+.passos{list-style:none;counter-reset:p;display:grid;gap:2px;margin-top:36px;
+  background:var(--linha);border:1px solid var(--linha);border-radius:16px;overflow:hidden}
+.passos li{counter-increment:p;display:flex;gap:18px;align-items:flex-start;background:var(--ink);padding:24px}
+.passos li::before{
+  content:counter(p);flex:0 0 34px;height:34px;border-radius:50%;
+  background:rgba(255,180,84,.13);border:1px solid rgba(255,180,84,.3);color:var(--ambar);
+  font-family:var(--display);font-weight:800;font-size:16px;display:grid;place-items:center;
+}
+.passos b{display:block;font-size:17.5px;font-weight:600;margin-bottom:4px}
+.passos span{color:var(--dim);font-size:16px;line-height:1.5}
+
+/* ---------- preço ---------- */
+.planos{display:grid;gap:18px;margin-top:38px}
+@media(min-width:800px){.planos{grid-template-columns:1fr 1fr;gap:22px}}
+.plano{background:var(--painel);border:1px solid var(--linha-2);border-radius:18px;padding:30px 26px;position:relative}
+.plano.destaque{border-color:rgba(255,180,84,.45);background:linear-gradient(180deg,rgba(255,180,84,.055),transparent 55%),var(--painel)}
+.plano .selo{
+  position:absolute;top:-11px;right:22px;background:var(--ambar);color:#170e02;
+  font:700 12.5px/1 var(--sans);letter-spacing:.08em;text-transform:uppercase;
+  padding:7px 11px;border-radius:7px;
+}
+.plano h3{font-size:17px;font-weight:600;color:var(--dim);font-family:var(--sans);letter-spacing:0}
+.preco{font-family:var(--display);font-weight:800;font-size:44px;letter-spacing:-.035em;margin:8px 0 20px;line-height:1}
+.preco small{font-family:var(--sans);font-size:15px;font-weight:400;color:var(--dim);letter-spacing:0}
+.plano ul{list-style:none;display:grid;gap:11px;font-size:16.5px;color:var(--dim)}
+.plano li{display:flex;gap:11px;align-items:flex-start}
+.plano li::before{content:"✓";color:var(--verde);font-weight:700;flex:0 0 auto;line-height:1.5}
+.plano.destaque li::before{color:var(--ambar)}
+
+/* ---------- quem fez ---------- */
+.autor{border-left:2px solid var(--ambar);padding:6px 0 6px 26px;margin-top:34px}
+.autor p{color:var(--dim);font-size:17.5px;line-height:1.62}
+.autor p+p{margin-top:15px}
+.autor b{color:var(--texto)}
+.autor .assina{font-family:var(--display);font-weight:800;font-size:19px;color:var(--texto);letter-spacing:-.02em;margin-top:20px;display:block}
+
+/* ---------- fecho ---------- */
+.fecho{text-align:center;padding-top:96px;padding-bottom:30px}
+.fecho h2{max-width:16ch;margin:0 auto}
+.fecho .grande{margin:20px auto 0;max-width:44ch}
+.fecho .acao{margin-top:34px}
+
+footer{border-top:1px solid var(--linha);padding:34px 0 60px;color:var(--dim);font-size:15px}
+.rodape{display:flex;flex-direction:column;gap:4px;align-items:center;text-align:center}
+@media(min-width:640px){.rodape{flex-direction:row;justify-content:space-between;text-align:left}}
+footer a{color:var(--ambar);display:inline-block;padding:13px 2px;min-height:44px}
+footer a:hover{text-decoration:underline}
+
+/* ---------- entrada em cena ---------- */
+.js .entra{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.7,.3,1),transform .7s cubic-bezier(.2,.7,.3,1)}
+.js .entra.vista{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .js .entra{opacity:1;transform:none;transition:none}
+  .cta,.cta .seta,.entrar{transition:none}
+}
 </style>
 </head>
 <body>
 
-<div class="wrap">
-  <header><div class="marca">🎼 Cifra <span>Pronta</span></div></header>
+<header>
+  <div class="wrap barra">
+    <div class="marca">
+      <svg viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="114" fill="#ffb454"/><g stroke="#0b0d11" stroke-linecap="round" fill="none"><g stroke-width="16" opacity=".34"><path d="M128 148v216M213 148v216M299 148v216M384 148v216"/><path d="M128 256h256M128 364h256"/></g><path d="M128 148h256" stroke-width="32"/></g><g fill="#0b0d11"><circle cx="213" cy="202" r="34"/><circle cx="384" cy="202" r="34"/><circle cx="299" cy="310" r="34"/></g></svg>
+      <b>Cifra <i>Pronta</i></b>
+    </div>
+    <a class="entrar" href="app/#/more">Entrar</a>
+  </div>
+</header>
 
-  <div class="heroi">
+<main>
+
+  <div class="wrap heroi">
     <h1>Suas cifras prontas <em>na hora do show</em>.</h1>
-    <p class="sub">Sem papel amassado, sem print que apaga a tela, sem depender do wi-fi da casa.</p>
-    <a class="cta" href="app/#/more">Começar grátis agora</a>
-    <span class="sob">Não pede cartão. Leva menos de um minuto.</span>
+    <p class="grande">Sem papel amassado, sem print que apaga a tela, sem depender do wi-fi da casa.</p>
+    <div class="acao">
+      <a class="cta" href="app/#/more">Começar grátis agora <span class="seta">→</span></a>
+      <span class="sob">Não pede cartão. Leva menos de um minuto.</span>
+    </div>
+    <figure class="tela tela-heroi entra">
+      <picture>
+        <source media="(min-width:760px)" srcset="prints/palco.webp" width="2000" height="1400">
+        <img src="prints/palco-cel.webp" width="860" height="1520" alt="O modo palco do Cifra Pronta: letra grande em fundo escuro, acordes destacados em laranja acima da sílaba certa, e a barra de baixo com o botão de próxima música." fetchpriority="high">
+      </picture>
+    </figure>
+    <p class="legenda entra">O modo palco: letra grande, acorde em cima da sílaba certa, rolagem descendo sozinha e a tela que não apaga.</p>
   </div>
 
-  <section>
-    <h2>Você já passou por isso</h2>
-    <ul class="dor">
-      <li><b>A tela apaga no meio da música.</b> Print no celular não sabe que você está tocando.</li>
-      <li><b>A casa não tem sinal.</b> O site da cifra não abre bem na hora que você precisa.</li>
-      <li><b>A cantora pede meio tom abaixo.</b> Você transpõe de cabeça, no palco, com todo mundo olhando.</li>
-      <li><b>A ordem do show muda.</b> Você procura a próxima música com uma mão só.</li>
+  <div class="wrap">
+    <div class="provas">
+      <div><b>Abre em modo avião</b><span>As músicas moram no aparelho.</span></div>
+      <div><b>Tom novo em 1 toque</b><span>Os desenhos dos acordes acompanham.</span></div>
+      <div><b>A tela não apaga</b><span>Nem no meio do segundo refrão.</span></div>
+    </div>
+  </div>
+
+  <section class="wrap">
+    <div class="estreito entra">
+      <span class="olho">O problema</span>
+      <h2>Você já passou por isso.</h2>
+    </div>
+    <ul class="dores entra">
+      <li><b>A tela apaga no meio da música</b><p>Print no celular não sabe que você está tocando. E ninguém quer desbloquear o aparelho com a mão direita no braço do violão.</p></li>
+      <li><b>A casa não tem sinal</b><p>O site da cifra abre no ensaio e trava na hora do show, justamente quando você não tem como resolver.</p></li>
+      <li><b>A cantora pede meio tom abaixo</b><p>E você transpõe de cabeça, no palco, com a banda esperando e todo mundo olhando.</p></li>
+      <li><b>A ordem do show muda</b><p>Você procura a próxima música com uma mão só, rolando uma lista de arquivos com nome de arquivo.</p></li>
     </ul>
   </section>
 
-  <section>
-    <h2>O que o Cifra Pronta faz</h2>
-    <div class="recursos">
-      <div class="rec">
-        <h3>Funciona em modo avião</h3>
-        <p>As músicas ficam no aparelho. O show inteiro roda sem uma barra de sinal.</p>
+  <hr class="regra">
+
+  <section class="wrap">
+    <div class="estreito entra">
+      <span class="olho">Como funciona</span>
+      <h2>Feito para ser lido de pé, a um metro de distância.</h2>
+    </div>
+
+    <div class="recurso entra">
+      <div class="txt">
+        <h3>O show inteiro na ordem certa</h3>
+        <p>Monte a setlist arrastando as músicas. No palco, um toque passa para a próxima, e o pedal de virar página faz o mesmo com as duas mãos ocupadas.</p>
+        <p>Mudou a ordem em cima da hora? Arrasta e pronto.</p>
       </div>
-      <div class="rec">
-        <h3>Tom novo em um toque</h3>
-        <p>Meio tom acima, meio abaixo. Os acordes mudam na tela e os desenhos acompanham.</p>
+      <figure class="fig tela">
+        <picture>
+          <source media="(min-width:760px)" srcset="prints/setlist.webp" width="1668" height="1460">
+          <img src="prints/setlist-cel.webp" width="860" height="1280" loading="lazy" decoding="async" alt="Tela de um show chamado Bar do Zé, sábado, com seis músicas numeradas na ordem, cada uma mostrando o tom ao lado e botões para subir e descer na lista.">
+        </picture>
+      </figure>
+    </div>
+
+    <div class="recurso espelho entra">
+      <div class="txt">
+        <h3>O desenho do acorde, na mesma tela</h3>
+        <p>Bateu dúvida num acorde estranho? Toque nele. Aparece o desenho no violão e no teclado, com as notas e o baixo escritos por extenso.</p>
+        <p>Sem sair da música, sem abrir outro app, sem perder o compasso.</p>
       </div>
-      <div class="rec">
-        <h3>Modo palco</h3>
-        <p>Letra grande, fundo escuro, rolagem sozinha na velocidade que você escolhe. A tela não apaga.</p>
+      <figure class="fig tela">
+        <picture>
+          <source media="(min-width:760px)" srcset="prints/acorde.webp" width="1668" height="596">
+          <img src="prints/acorde-cel.webp" width="860" height="596" loading="lazy" decoding="async" alt="Folha do acorde D barra F sustenido, com o diagrama no braço do violão à esquerda, o teclado com as teclas acesas à direita, e as notas D, F# e A escritas embaixo.">
+        </picture>
+      </figure>
+    </div>
+
+    <div class="recurso entra">
+      <div class="txt">
+        <h3>A biblioteca com o tom de cada música</h3>
+        <p>Tudo que você já tocou fica junto, com o artista e o tom à vista. A busca acha pelo nome, pelo artista ou por um pedaço da letra.</p>
+        <p>Cada música guarda o seu tom, a sua velocidade de rolagem e as suas observações.</p>
       </div>
-      <div class="rec">
-        <h3>Desenho do acorde</h3>
-        <p>Violão e teclado. Bateu dúvida num acorde estranho, ele está ali na mesma tela.</p>
-      </div>
-      <div class="rec">
-        <h3>Shows na ordem certa</h3>
-        <p>Monte a setlist arrastando. No palco, um toque passa para a próxima.</p>
-      </div>
-      <div class="rec">
-        <h3>Pedal e teclado</h3>
-        <p>Barra de espaço e pedal de página viram o passar de música, com as duas mãos ocupadas.</p>
-      </div>
+      <figure class="fig tela">
+        <picture>
+          <source media="(min-width:760px)" srcset="prints/biblioteca.webp" width="1668" height="1560">
+          <img src="prints/biblioteca-cel.webp" width="860" height="1320" loading="lazy" decoding="async" alt="Biblioteca do app com oito músicas em cartões, cada uma com nome, artista e o tom em destaque.">
+        </picture>
+      </figure>
+    </div>
+
+  </section>
+
+  <hr class="regra">
+
+  <section class="wrap">
+    <div class="estreito entra">
+      <span class="olho">Transposição</span>
+      <h2>Meio tom abaixo, sem apagar nada.</h2>
+      <p class="grande" style="margin-top:16px">Dois toques e a cifra inteira muda de tom na tela. A original continua guardada do jeito que você colou.</p>
+    </div>
+    <div class="tom entra">
+      <figure>
+        <div class="tela"><img src="prints/tom-antes.webp" width="1120" height="600" loading="lazy" decoding="async" alt="Cifra no tom de sol, com os acordes G, D barra F sustenido e Em."></div>
+        <figcaption><b>Do jeito que você colou</b><br>Tom de G</figcaption>
+      </figure>
+      <div class="flecha" aria-hidden="true">→</div>
+      <figure>
+        <div class="tela"><img src="prints/tom-depois.webp" width="1120" height="600" loading="lazy" decoding="async" alt="A mesma cifra um tom abaixo, agora em fá, com os acordes F, C barra E e Dm."></div>
+        <figcaption><b>Dois toques depois</b><br>Tom de F, com a banda esperando</figcaption>
+      </figure>
     </div>
   </section>
 
-  <section>
-    <h2>É assim que você lê</h2>
-    <p class="dim">Acorde em laranja, sempre em cima da sílaba certa. Fonte do tamanho que você enxerga do banquinho.</p>
-    <div class="palco"><span class="tom">Tom: G</span>
-<pre><span class="ac">G          D/F#     Em</span>
-a tela desce sozinha
-<span class="ac">C        G/B    Am7   D</span>
-no ritmo do seu ensaio</pre></div>
+  <hr class="regra">
+
+  <section class="wrap">
+    <div class="estreito entra">
+      <span class="olho">E ainda</span>
+      <h2>As coisas pequenas que salvam o show.</h2>
+    </div>
+    <div class="mais entra">
+      <div><span class="ico">🎹</span><h3>Violão e teclado</h3><p>Todo acorde tem os dois desenhos. Você troca de instrumento sem trocar de app.</p></div>
+      <div><span class="ico">⌨️</span><h3>Pedal e teclado</h3><p>Barra de espaço e pedal de página viram o passar de música.</p></div>
+      <div><span class="ico">📝</span><h3>Observações da música</h3><p>"Entra sem intro", "repete o refrão 2x". Fica junto da cifra, não no papel.</p></div>
+      <div><span class="ico">💾</span><h3>Backup em arquivo</h3><p>Exporta a biblioteca inteira num arquivo. É sua, sempre, saia ou fique.</p></div>
+      <div><span class="ico">📲</span><h3>Vira ícone no iPad</h3><p>Instala na tela de início como qualquer app. Não precisa de loja.</p></div>
+      <div><span class="ico">🔄</span><h3>Dois aparelhos juntos</h3><p>iPad no palco, celular no bolso, a mesma biblioteca nos dois.</p></div>
+    </div>
   </section>
 
-  <section>
-    <h2>Como você começa</h2>
-    <ol class="passos">
-      <li><div><b>Crie sua conta grátis</b><br><span class="dim">Só o e-mail. Chega um código de 6 números, sem senha para inventar.</span></div></li>
-      <li><div><b>Coloque suas músicas</b><br><span class="dim">Cole a cifra de onde você já usa, ou busque dentro do app.</span></div></li>
-      <li><div><b>Instale na tela de início</b><br><span class="dim">No iPad e no iPhone vira ícone, igual a qualquer app. Não precisa de loja.</span></div></li>
-    </ol>
+  <hr class="regra">
+
+  <section class="wrap">
+    <div class="estreito entra">
+      <span class="olho">Começar</span>
+      <h2>Três passos e o próximo ensaio já é aqui.</h2>
+      <ol class="passos">
+        <li><div><b>Crie sua conta grátis</b><span>Só o e-mail. Chega um código de 6 números, sem senha para inventar.</span></div></li>
+        <li><div><b>Coloque suas músicas</b><span>Cole a cifra de onde você já usa. O app separa acorde de letra sozinho e adivinha o tom.</span></div></li>
+        <li><div><b>Instale na tela de início</b><span>No iPad e no iPhone vira ícone, igual a qualquer app.</span></div></li>
+      </ol>
+    </div>
   </section>
 
-  <section>
-    <h2>Quanto custa</h2>
-    <div class="planos">
+  <hr class="regra">
+
+  <section class="wrap">
+    <div class="estreito entra">
+      <span class="olho">Preço</span>
+      <h2>Comece de graça. Assine quando o repertório crescer.</h2>
+    </div>
+    <div class="planos entra">
       <div class="plano">
         <h3>Grátis</h3>
         <div class="preco">R$ 0<small> para sempre</small></div>
@@ -177,6 +439,7 @@ no ritmo do seu ensaio</pre></div>
         </ul>
       </div>
       <div class="plano destaque">
+        <span class="selo">Para quem toca sempre</span>
         <h3>Assinatura</h3>
         <div class="preco">R$ 29,90<small> por mês</small></div>
         <ul>
@@ -188,29 +451,41 @@ no ritmo do seu ensaio</pre></div>
         </ul>
       </div>
     </div>
-    <p class="dim" style="margin-top:18px">Cancelando, nada é apagado. Suas músicas continuam no aparelho, e você exporta tudo quando quiser.</p>
+    <p class="dim entra" style="margin-top:22px;font-size:16px">Cancelando, nada é apagado. Suas músicas continuam no aparelho, e você exporta tudo quando quiser.</p>
   </section>
 
-  <section>
-    <h2>Quem fez</h2>
-    <div class="autor">
-      <p><b>Eu sou o Eder. Toco teclado e violão.</b></p>
-      <p>Fiz este app porque me cansei de subir no palco com folha impressa e de descobrir, no meio do show, que o celular tinha bloqueado a tela. Cada coisa aqui dentro resolveu um problema que eu tive tocando, não uma ideia que eu tive na frente do computador.</p>
-      <p>Se faltar alguma coisa para o seu show, me escreve. Eu leio.</p>
+  <hr class="regra">
+
+  <section class="wrap">
+    <div class="estreito entra">
+      <span class="olho">Quem fez</span>
+      <h2>Eu sou o Eder. Toco teclado e violão.</h2>
+      <div class="autor">
+        <p>Fiz este app porque me cansei de subir no palco com folha impressa e de descobrir, no meio do show, que o celular tinha bloqueado a tela.</p>
+        <p><b>Cada coisa aqui dentro resolveu um problema que eu tive tocando</b>, não uma ideia que eu tive na frente do computador. A rolagem automática nasceu num sábado em que eu estava com as duas mãos no teclado. O desenho do acorde na mesma tela nasceu de um acorde que eu não conhecia, dois compassos antes de entrar.</p>
+        <p>Se faltar alguma coisa para o seu show, me escreve. Eu leio.</p>
+        <span class="assina">Eder Ortega</span>
+      </div>
     </div>
   </section>
 
-  <section style="text-align:center;border:0">
-    <h2>Comece pelo próximo ensaio</h2>
-    <p class="dim">Oito músicas de graça já dão um repertório de canto de bar.</p>
-    <a class="cta" href="app/#/more">Começar grátis agora</a>
-  </section>
+  <div class="wrap fecho entra">
+    <h2>Comece pelo próximo ensaio.</h2>
+    <p class="grande">Oito músicas de graça já dão um repertório de canto de bar.</p>
+    <div class="acao">
+      <a class="cta" href="app/#/more">Começar grátis agora <span class="seta">→</span></a>
+      <span class="sob">Não pede cartão. Leva menos de um minuto.</span>
+    </div>
+  </div>
 
-  <footer>
-    Cifra Pronta · <a href="mailto:contato@cifrapronta.com.br">contato@cifrapronta.com.br</a><br>
+</main>
+
+<footer>
+  <div class="wrap rodape">
+    <span>Cifra Pronta · <a href="mailto:contato@cifrapronta.com.br">contato@cifrapronta.com.br</a></span>
     <span style="opacity:.7">Feito no Brasil, por quem toca.</span>
-  </footer>
-</div>
+  </div>
+</footer>
 
 <script>
 // Esta página é a porta da rua, e duas pessoas batem nela por engano.
@@ -253,6 +528,25 @@ no ritmo do seu ensaio</pre></div>
       }
     }
   } catch (e) { /* página normal */ }
+})()
+
+// Entrada em cena: cada bloco sobe um pouco ao aparecer. Quem pediu menos
+// movimento no sistema já foi atendido pelo CSS; aqui só se garante que nada
+// fique invisível se o navegador não tiver o observador.
+;(function () {
+  var alvos = document.querySelectorAll('.entra')
+  if (!('IntersectionObserver' in window)) {
+    for (var i = 0; i < alvos.length; i++) alvos[i].classList.add('vista')
+    return
+  }
+  var obs = new IntersectionObserver(function (linhas) {
+    linhas.forEach(function (l) {
+      if (!l.isIntersecting) return
+      l.target.classList.add('vista')
+      obs.unobserve(l.target)
+    })
+  }, { rootMargin: '0px 0px -12% 0px', threshold: .06 })
+  alvos.forEach(function (a) { obs.observe(a) })
 })()
 </script>
 

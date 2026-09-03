@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Cifra Pronta">
+  <title>Cifra Pronta</title>
+  <!--
+    A marca é o diagrama de acorde: a pestana grossa, quatro cordas, duas casas
+    e os três dedos do RÉ maior, que formam um triângulo apontando para baixo.
+    É o desenho que o app mostra quando o músico bate dúvida num acorde, então
+    a marca é literalmente o produto.
+    Só duas casas de propósito: com três, as linhas se fundem com os pontos no
+    ícone de 16px. Assim, quando tudo mais some, sobram a pestana e o triângulo,
+    que é o que faz o ícone ser reconhecido de longe na tela de início.
+  -->
+  <rect width="512" height="512" rx="114" fill="#ffb454"/>
+  <g stroke="#0b0d11" stroke-linecap="round" fill="none">
+    <g stroke-width="16" opacity=".34">
+      <path d="M128 148v216M213 148v216M299 148v216M384 148v216"/>
+      <path d="M128 256h256M128 364h256"/>
+    </g>
+    <path d="M128 148h256" stroke-width="32"/>
+  </g>
+  <g fill="#0b0d11">
+    <circle cx="213" cy="202" r="34"/>
+    <circle cx="384" cy="202" r="34"/>
+    <circle cx="299" cy="310" r="34"/>
+  </g>
+</svg>

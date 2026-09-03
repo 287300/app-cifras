@@ -1,53 +1,59 @@
 #!/usr/bin/env python3
-"""Gera os ícones do app (nota musical sobre fundo escuro) com PIL."""
+"""Gera os ícones do app a partir da marca: o diagrama de acorde.
+
+A marca vive em web/logo.svg; aqui ela é redesenhada com PIL porque o sandbox
+não tem rasterizador de SVG. As duas versões PRECISAM continuar iguais: mexeu
+numa, mexa na outra. A geometria abaixo é a mesma do arquivo, em 512.
+"""
 from PIL import Image, ImageDraw
 import os
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "web", "icons")
 os.makedirs(OUT, exist_ok=True)
 
-BG = (14, 17, 22, 255)        # #0e1116
-ACCENT = (255, 180, 84, 255)  # âmbar, mesma cor de destaque dos acordes
+AMBAR = (255, 180, 84, 255)  # #ffb454, a mesma cor dos acordes na tela
+TINTA = (11, 13, 17, 255)  # #0b0d11
 
 
-def draw_icon(size: int, rounded: bool) -> Image.Image:
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+def mistura(frente, fundo, alfa):
+    return tuple(round(f * alfa + b * (1 - alfa)) for f, b in zip(frente, fundo))
+
+
+def desenha(size: int) -> Image.Image:
+    """O ícone é desenhado 4x maior e reduzido: é o antisserrilhado do pobre,
+    e sem ele as linhas finas do diagrama ficam com degrau no iPad."""
+    ESC = 4
+    g = size * ESC
+    s = g / 512.0
+    img = Image.new("RGBA", (g, g), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    radius = int(size * 0.22) if rounded else 0
-    d.rounded_rectangle([0, 0, size - 1, size - 1], radius=radius, fill=BG)
+    d.rounded_rectangle([0, 0, g - 1, g - 1], radius=round(114 * s), fill=AMBAR)
 
-    s = size / 512.0  # desenho pensado em 512
+    fraco = mistura(TINTA, AMBAR, 0.34)  # cordas e casas: esqueleto, não leitura
 
-    # Colcheia: duas notas ligadas (estilo simples e legível em tamanho pequeno)
-    def note(cx, cy, rx, ry):
-        d.ellipse([cx - rx, cy - ry, cx + rx, cy + ry], fill=ACCENT)
+    def barra(x1, y1, x2, y2, largura, cor):
+        r = largura * s / 2
+        d.rounded_rectangle(
+            [x1 * s - r, y1 * s - r, x2 * s + r, y2 * s + r], radius=r, fill=cor
+        )
 
-    stem_w = int(22 * s)
-    # hastes
-    d.rectangle([int(198 * s), int(120 * s), int(198 * s) + stem_w, int(340 * s)], fill=ACCENT)
-    d.rectangle([int(330 * s), int(96 * s), int(330 * s) + stem_w, int(316 * s)], fill=ACCENT)
-    # barra ligando as hastes (inclinada)
-    d.polygon(
-        [
-            (int(198 * s), int(120 * s)),
-            (int(330 * s) + stem_w, int(96 * s)),
-            (int(330 * s) + stem_w, int(150 * s)),
-            (int(198 * s), int(174 * s)),
-        ],
-        fill=ACCENT,
-    )
-    # cabeças das notas
-    note(int(174 * s), int(352 * s), int(46 * s), int(34 * s))
-    note(int(306 * s), int(328 * s), int(46 * s), int(34 * s))
-    return img
+    for x in (128, 213, 299, 384):  # cordas
+        barra(x, 148, x, 364, 16, fraco)
+    for y in (256, 364):  # casas
+        barra(128, y, 384, y, 16, fraco)
+    barra(128, 148, 384, 148, 32, TINTA)  # pestana
+
+    for cx, cy in ((213, 202), (384, 202), (299, 310)):  # os três dedos do RÉ
+        r = 34 * s
+        d.ellipse([cx * s - r, cy * s - r, cx * s + r, cy * s + r], fill=TINTA)
+
+    return img.resize((size, size), Image.LANCZOS)
 
 
-for size, name, rounded in [
-    (512, "icon-512.png", False),
-    (192, "icon-192.png", False),
-    (180, "apple-touch-icon.png", True),
-]:
-    draw_icon(size, rounded).convert("RGB" if name == "apple-touch-icon.png" else "RGBA").save(
-        os.path.join(OUT, name)
-    )
+for size, name in [(512, "icon-512.png"), (192, "icon-192.png"), (180, "apple-touch-icon.png")]:
+    img = desenha(size)
+    # o ícone do iOS é recortado pelo sistema e não aceita transparência
+    if name == "apple-touch-icon.png":
+        img = img.convert("RGB")
+    img.save(os.path.join(OUT, name))
     print("gerado", name)
