@@ -7,10 +7,23 @@
 //   - a nuvem vazia nunca "limpa" um aparelho cheio (só recebe o 1º envio);
 //   - envio idêntico ao anterior é pulado (hash local);
 //   - conflito (409) = mescla local e reenvia, uma vez por rodada.
+//
+// A nuvem é recurso da assinatura (ticket 17). Duas coisas continuam valendo
+// exatamente como antes disso:
+//
+//   - A CONTA NÃO É A CHAVE. Ela prova ao servidor quem pode gravar e ler
+//     aquela linha; o conteúdo continua cifrado com um segredo que só existe
+//     nos aparelhos. Servidor nenhum lê música, observação ou nome de show.
+//   - PARAR DE PAGAR NÃO DESLIGA. A chave do conjunto continua guardada e a
+//     sincronização apenas fica parada. Voltando o plano, ela volta sozinha,
+//     sem parear os aparelhos de novo.
 
+import { contaAtual, onContaChange, tokenDeAcesso } from './conta.ts'
 import { db } from './db.ts'
+import { onLicencaChange, planoAtual } from './licenca.ts'
 import { store } from './store.ts'
 import { FUNCOES, SUPABASE_ANON } from './supabase.ts'
+import { bloqueioDaSincronizacao, bloqueioDoServidor, textoDoBloqueio, type Bloqueio } from './engine/sincronizacao.ts'
 import {
   contentHash,
   decryptText,
@@ -41,6 +54,8 @@ export interface SyncStatus {
   lastSyncAt: number
   busy: boolean
   error: string
+  /** Por que a nuvem está fora de alcance agora ('nenhum' quando está tudo certo). */
+  bloqueio: Bloqueio
 }
 
 // De quanto em quanto tempo o app aberto olha a nuvem sozinho. Sem isso, um
@@ -60,10 +75,49 @@ let busy = false
 let lastSyncAt = 0
 let lastError = ''
 let pendingPull = false
+/**
+ * A última recusa que veio DO SERVIDOR.
+ *
+ * Guardada à parte do que este aparelho sabe, porque os dois podem discordar:
+ * a assinatura pode ter acabado cinco minutos atrás e o aparelho ainda não
+ * saber. Quando isso acontece, quem manda é o servidor.
+ */
+let recusaDoServidor: Bloqueio = 'nenhum'
 const listeners = new Set<() => void>()
 
 function notify() {
   for (const fn of listeners) fn()
+}
+
+/** O que este aparelho sabe agora sobre poder ou não falar com a nuvem. */
+function bloqueioLocal(): Bloqueio {
+  return bloqueioDaSincronizacao({ temConta: contaAtual() !== null, plano: planoAtual() })
+}
+
+/**
+ * A resposta que vale, lida na hora.
+ *
+ * Lida na hora de propósito: guardar isto numa variável já custou caro uma
+ * vez. Conta e licença chegam do banco do aparelho depois do primeiro desenho
+ * da tela, e um valor congelado no arranque deixava o cartão dizendo que
+ * estava tudo certo enquanto o app não sincronizava nada.
+ */
+function bloqueioAtual(): Bloqueio {
+  const local = bloqueioLocal()
+  return local !== 'nenhum' ? local : recusaDoServidor
+}
+
+/**
+ * Anota a recusa do servidor e devolve true quando ela mudou.
+ *
+ * Recusa apaga o recado técnico de propósito: "nuvem respondeu 402" ao lado de
+ * "sincronizar é recurso da assinatura" só confunde quem lê.
+ */
+function marcaBloqueio(b: Bloqueio): boolean {
+  if (recusaDoServidor === b) return false
+  recusaDoServidor = b
+  if (b !== 'nenhum') lastError = ''
+  return true
 }
 
 async function saveKv(): Promise<void> {
@@ -84,12 +138,47 @@ function serialize(): string {
   })
 }
 
+/**
+ * Chama a nuvem com o crachá da pessoa.
+ *
+ * A chave pública (apikey) abre a porta da função; o crachá diz QUEM está
+ * entrando. Sem crachá utilizável não há chamada nenhuma: o servidor recusaria
+ * de qualquer jeito, e uma ida à rede para tomar 401 só gasta bateria.
+ */
 async function call(body: Record<string, unknown>): Promise<Response> {
-  return fetch(FN, {
+  const token = await tokenDeAcesso()
+  if (!token) {
+    marcaBloqueio('sem-conta')
+    throw new Error(textoDoBloqueio('sem-conta') as string)
+  }
+  const res = await fetch(FN, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: KEY, Authorization: 'Bearer ' + KEY },
+    headers: { 'Content-Type': 'application/json', apikey: KEY, Authorization: 'Bearer ' + token },
     body: JSON.stringify(body),
   })
+  // recusa do servidor manda mais do que a conta deste aparelho: a assinatura
+  // pode ter acabado dois minutos atrás, e é ele quem está vendo isso
+  const doServidor = bloqueioDoServidor(res.status)
+  if (doServidor !== 'nenhum') {
+    marcaBloqueio(doServidor)
+    paraRonda()
+    throw new Error(textoDoBloqueio(doServidor) as string)
+  }
+  if (res.ok) marcaBloqueio('nenhum')
+  return res
+}
+
+/**
+ * A porta de entrada de tudo o que fala com a nuvem.
+ *
+ * Devolve false, sem erro nenhum, quando este aparelho já sabe que não pode:
+ * o cartão de sincronização explica o motivo, e ninguém precisa ver um erro
+ * para descobrir que a assinatura acabou.
+ */
+function liberadoParaRede(): boolean {
+  const b = bloqueioAtual()
+  if (b !== 'nenhum') paraRonda()
+  return b === 'nenhum'
 }
 
 async function applyRemote(packed: string, updatedAt: number): Promise<void> {
@@ -119,6 +208,7 @@ export async function pullNow(): Promise<void> {
     pendingPull = true
     return
   }
+  if (!liberadoParaRede()) return
   busy = true
   lastError = ''
   notify()
@@ -148,6 +238,7 @@ export async function pushNow(fromPull = false): Promise<void> {
   if (!kv?.enabled || !cryptoKey) return
   if (!navigator.onLine) return
   if (!fromPull && busy) return
+  if (!liberadoParaRede()) return
   if (!fromPull) {
     busy = true
     lastError = ''
@@ -192,12 +283,22 @@ function schedulePush(): void {
   }, 4000)
 }
 
-/** Envio pendente vai agora: usado quando o app sai da frente ou vai fechar. */
+/**
+ * Envio pendente vai agora: usado quando o app sai da frente ou vai fechar.
+ *
+ * O detalhe que parece bobo e não é: se uma sincronização já estiver no ar,
+ * pushNow desiste na hora por causa da trava de ocupado. Como o timer já foi
+ * cancelado aqui, o envio pendente sumiria em silêncio, justamente no momento
+ * em que o app está sendo fechado. Por isso esperamos a que está rodando.
+ */
 function flushPush(): void {
   if (!timer) return
   clearTimeout(timer)
   timer = null
-  void pushNow()
+  void (async () => {
+    for (let i = 0; i < 20 && busy; i++) await new Promise((r) => setTimeout(r, 100))
+    await pushNow()
+  })()
 }
 
 /** Busca com piso de tempo, para foco e ronda não virarem enxurrada. */
@@ -208,6 +309,7 @@ function pullSePassouTempo(): void {
 
 function ligaRonda(): void {
   if (ronda || !kv?.enabled) return
+  if (bloqueioAtual() !== 'nenhum') return // parada por conta ou plano: não fica batendo à toa
   ronda = setInterval(() => {
     if (document.visibilityState !== 'visible') return
     if (inPlay()) return // no palco ninguém mexe na tela
@@ -221,8 +323,21 @@ function paraRonda(): void {
   ronda = null
 }
 
+/**
+ * Recusa em forma de erro, para as ações que a pessoa disparou de propósito.
+ *
+ * Ligar, gerar código e usar código são toques deliberados: aí a frase precisa
+ * chegar. As rondas e os envios automáticos ficam quietos, porque ninguém pediu
+ * nada e um alerta no meio do ensaio não ajuda em nada.
+ */
+function exigeLiberado(): void {
+  const b = bloqueioAtual()
+  if (b !== 'nenhum') throw new Error(textoDoBloqueio(b) as string)
+}
+
 /** Liga a sincronização sozinha: o app sorteia o segredo, sem senha nenhuma. */
 export async function enableSync(device: string): Promise<void> {
+  exigeLiberado()
   const derived = await deriveFromSecret(randomSecret())
   await activate(derived.id, derived.rawKey, device)
 }
@@ -249,6 +364,7 @@ async function activate(id: string, rawKey: string, device: string): Promise<voi
 export async function createPairCode(): Promise<string> {
   if (!kv?.enabled) throw new Error('Ligue a sincronização neste aparelho primeiro.')
   if (!navigator.onLine) throw new Error('Precisa de internet para gerar o código.')
+  exigeLiberado()
   const code = newPairCode()
   const wrapped = await encryptText(await keyFromCode(code), JSON.stringify({ id: kv.id, rawKey: kv.rawKey }))
   const res = await call({ op: 'pair-create', pairId: await pairIdFromCode(code), payload: wrapped })
@@ -262,6 +378,7 @@ export async function claimPairCode(code: string, device: string): Promise<void>
   const digits = code.replace(/\D/g, '')
   if (digits.length !== 6) throw new Error('O código tem 6 números.')
   if (!navigator.onLine) throw new Error('Precisa de internet para usar o código.')
+  exigeLiberado()
   const res = await call({ op: 'pair-claim', pairId: await pairIdFromCode(digits) })
   const data = (await res.json()) as { payload?: string; error?: string }
   if (!res.ok || !data.payload) throw new Error(data.error || 'código inválido')
@@ -291,7 +408,33 @@ export async function disableSync(): Promise<void> {
 }
 
 export function syncStatus(): SyncStatus {
-  return { enabled: !!kv?.enabled, device: kv?.device ?? '', lastSyncAt, busy, error: lastError }
+  return { enabled: !!kv?.enabled, device: kv?.device ?? '', lastSyncAt, busy, error: lastError, bloqueio: bloqueioAtual() }
+}
+
+/**
+ * Voltou a poder: retoma sem pedir nada a ninguém.
+ *
+ * É este pedaço que cumpre a promessa de "voltar a pagar não pede pareamento
+ * de novo". A chave do conjunto nunca foi apagada, então basta destravar,
+ * religar a ronda e buscar o que mudou enquanto o app estava parado.
+ */
+let ultimoAvisado: Bloqueio | null = null
+function reavalia(): void {
+  const local = bloqueioLocal()
+  // conta ou plano voltaram: a recusa que o servidor deu antes está velha, e
+  // segurar nela impediria justamente a primeira tentativa depois da compra
+  if (local === 'nenhum') marcaBloqueio('nenhum')
+  const agora = bloqueioAtual()
+  if (agora === ultimoAvisado) return
+  ultimoAvisado = agora
+  notify()
+  if (agora !== 'nenhum') {
+    paraRonda()
+    return
+  }
+  if (!kv?.enabled || inPlay()) return // no palco ninguém mexe na tela
+  ligaRonda()
+  void pullNow()
 }
 
 export function onSyncChange(fn: () => void): () => void {
@@ -314,6 +457,14 @@ export async function initSync(): Promise<void> {
     }
   }
   store.subscribe(schedulePush)
+  // conta e plano são as duas coisas que ligam e desligam a nuvem; as duas
+  // mudam por fora daqui (entrar, sair, comprar, deixar vencer)
+  onContaChange(reavalia)
+  onLicencaChange(reavalia)
+  // a licença pode ter terminado de carregar antes destes ouvintes existirem;
+  // este aviso é o que conserta o cartão que já foi desenhado
+  ultimoAvisado = bloqueioAtual()
+  notify()
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       void pullNow()
@@ -335,7 +486,7 @@ export async function initSync(): Promise<void> {
       void pullNow()
     }
   })
-  if (kv?.enabled) {
+  if (kv?.enabled && bloqueioAtual() === 'nenhum') {
     void pullNow()
     ligaRonda()
   }

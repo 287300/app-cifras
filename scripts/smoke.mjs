@@ -284,10 +284,73 @@ try {
       route.fulfill({ status: 400, json: { error: 'op?' } })
     }
   }
-  await page.route('**/functions/v1/sync*', syncMock)
+  let chamadasNaNuvem = 0
+  const syncContado = (route) => {
+    chamadasNaNuvem++
+    return syncMock(route)
+  }
+  await page.route('**/functions/v1/sync*', syncContado)
+
+  // ---------- sincronizar é recurso de quem assina (ticket 17) ----------
+  // Conta e licença entram direto no banco do aparelho, do mesmo jeito que um
+  // iPad que abriu o app em modo avião: o que o teste quer medir é o estado,
+  // não o caminho até ele.
+  const marcaConta = (alvo, plano) => alvo.evaluate(async (plano) => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras', 1); r.onupgradeneeded = () => { const d = r.result; for (const n of ['songs','shows','kv']) if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, { keyPath: n === 'kv' ? 'key' : 'id' }) }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    await new Promise((res) => {
+      const t = db.transaction('kv', 'readwrite')
+      t.objectStore('kv').put({ key: 'conta', value: { email: 'assinante@teste.com', userId: 'user-sync', accessToken: 'x', refreshToken: 'y', expiraEm: Date.now() + 3600000 } })
+      t.objectStore('kv').put({ key: 'licenca', value: { plano, validaAte: plano === 'pago' ? Date.now() + 30 * 86400000 : 0, conferidaEm: Date.now(), renova: true, userId: 'user-sync', jaFoiPagante: plano === 'pago' } })
+      t.oncomplete = res
+    })
+    db.close()
+  }, plano)
+  const marcaComoPagante = (alvo) => marcaConta(alvo, 'pago')
+  const recarrega = async (alvo) => {
+    await alvo.reload({ waitUntil: 'domcontentloaded' })
+    await alvo.waitForSelector('.tabbar', { timeout: 8000 })
+    await alvo.evaluate(() => { location.hash = '#/more' })
+    await alvo.waitForSelector('.content', { timeout: 8000 })
+    await alvo.waitForTimeout(400)
+  }
+
+  // sem conta: o motivo é a conta, não o dinheiro. Mandar assinar quem nem
+  // entrou ainda é pedir para pagar por algo que a pessoa não tem como usar
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('.content')
+  const cartaoSemConta = await page.textContent('.content')
+  check(
+    'SYNC PAGO: sem conta, o cartão pede a conta e não oferece ligar',
+    /entrar com o seu e-mail/i.test(cartaoSemConta) && (await page.locator('button:has-text("Ativar sincronização")').count()) === 0
+  )
+
+  // com conta, no grátis: aí sim o motivo é o plano, com a compra ao lado
+  let planoDoServidor = 'gratis'
+  await page.route('**/auth/v1/**', (route) => route.fulfill({ json: { id: 'user-sync', email: 'assinante@teste.com' } }))
+  await page.route('**/functions/v1/licenca*', (route) =>
+    route.fulfill({ json: { plano: planoDoServidor, restamMs: planoDoServidor === 'pago' ? 30 * 86400000 : 0, renova: true } })
+  )
+  await marcaConta(page, 'gratis')
+  await recarrega(page)
+  const noGratis = await page.textContent('.content')
+  check(
+    'SYNC PAGO: com conta no grátis, o cartão diz que é da assinatura',
+    /recurso da assinatura/i.test(noGratis) && (await page.locator('button:has-text("Ativar sincronização")').count()) === 0
+  )
+  check('SYNC PAGO: e o caminho da compra fica ao lado da explicação', (await page.locator('button:has-text("Quero assinar")').count()) === 1)
+  check('SYNC PAGO: a frase avisa que nada foi perdido', /continuam inteiras/i.test(noGratis))
+  check('SYNC PAGO: no grátis o app nem tenta falar com a nuvem', chamadasNaNuvem === 0)
+  await page.click('button:has-text("Quero assinar")')
+  await page.waitForSelector('.sheet:has-text("Assinando, isso some")', { timeout: 8000 })
+  check('SYNC PAGO: o botão abre a folha da assinatura com o preço', (await page.textContent('.sheet')).includes('29,90'))
+  await page.click('.sheetwrap .backdrop')
+
+  // assina: a nuvem passa a valer
+  planoDoServidor = 'pago'
+  await marcaConta(page, 'pago')
+  await recarrega(page)
 
   // aparelho A: ativa sem digitar senha nenhuma e manda a biblioteca para a nuvem
-  await page.evaluate(() => { location.hash = '#/more' })
   await page.waitForSelector('button:has-text("Ativar sincronização")')
   check('SYNC: não pede mais palavra-chave', (await page.locator('input[placeholder^="Palavra-chave"]').count()) === 0)
   await page.click('button:has-text("Ativar sincronização")')
@@ -307,9 +370,15 @@ try {
   // aparelho B: outro navegador zerado, digita o código e entra no mesmo conjunto
   const ctxB = await browser.newContext({ viewport: { width: 834, height: 1112 } })
   const pageB = await ctxB.newPage()
+  // Sincronizar é recurso de quem assina: este aparelho entra com a mesma
+  // conta e uma assinatura válida, que é o caminho de verdade de um iPad novo.
+  await pageB.route('**/auth/v1/**', (route) => route.fulfill({ json: { id: 'user-sync', email: 'assinante@teste.com' } }))
+  await pageB.route('**/functions/v1/licenca*', (route) => route.fulfill({ json: { plano: 'pago', restamMs: 30 * 86400000, renova: true } }))
   pageB.on('pageerror', (e) => errors.push('B: ' + String(e)))
   await pageB.route('**/functions/v1/sync*', syncMock)
   await pageB.goto(`http://localhost:${PORT}/`)
+  await marcaComoPagante(pageB)
+  await pageB.reload({ waitUntil: 'domcontentloaded' })
   await pageB.waitForSelector('.tabbar', { timeout: 8000 })
   await pageB.waitForTimeout(2000) // o service worker assume e recarrega a página 1 vez
   await pageB.waitForSelector('.tabbar', { timeout: 8000 })
@@ -362,9 +431,10 @@ try {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
     document.dispatchEvent(new Event('visibilitychange'))
   })
-  for (let i = 0; i < 30 && cloud.row.updatedAt === antesFlush; i++) await pageB.waitForTimeout(100)
+  for (let i = 0; i < 80 && cloud.row.updatedAt === antesFlush; i++) await pageB.waitForTimeout(100)
   const levou = Date.now() - t0
-  check('SYNC: sair do app manda na hora o que estava pendente (' + levou + 'ms)', cloud.row.updatedAt !== antesFlush && levou < 3000)
+  // o que importa é ter batido o debounce de 4 s do envio automático
+  check('SYNC: sair do app manda na hora o que estava pendente (' + levou + 'ms)', cloud.row.updatedAt !== antesFlush && levou < 4000)
 
   // A fica parada na tela e recebe sozinha, sem ninguém tocar em nada (ronda)
   await page.goto(`http://localhost:${PORT}/?ronda=1200#/library`)
@@ -383,7 +453,62 @@ try {
   check('SYNC: app aberto e parado busca a nuvem sozinho (ronda)', true)
 
   await ctxB.close()
+
+  // ---------- parar de pagar não apaga nada, e voltar não pede pareamento ----------
+  const contaMusicas = () => page.evaluate(async () => {
+    const db = await new Promise((res) => { const r = indexedDB.open('cifras', 1); r.onsuccess = () => res(r.result) })
+    const n = await new Promise((res) => { const q = db.transaction('songs').objectStore('songs').count(); q.onsuccess = () => res(q.result) })
+    db.close()
+    return n
+  })
+  const chaveGuardada = () => page.evaluate(async () => {
+    const db = await new Promise((res) => { const r = indexedDB.open('cifras', 1); r.onsuccess = () => res(r.result) })
+    const row = await new Promise((res) => { const q = db.transaction('kv').objectStore('kv').get('sync'); q.onsuccess = () => res(q.result) })
+    db.close()
+    return !!(row?.value?.enabled && row.value.rawKey)
+  })
+
+  const musicasAntes = await contaMusicas()
+  planoDoServidor = 'gratis'
+  await marcaConta(page, 'gratis')
+  await recarrega(page)
+  const vencida = await page.textContent('.content')
+  check('SYNC PAGO: assinatura vencida explica em vez de dar erro', /recurso da assinatura/i.test(vencida) && !/Falhou/i.test(vencida))
+  check('SYNC PAGO: e diz que continua ligada, só parada', /continua ligada neste aparelho/i.test(vencida))
+  check('SYNC PAGO: nenhuma música foi apagada (' + musicasAntes + ')', (await contaMusicas()) === musicasAntes && musicasAntes > 10)
+  check('SYNC PAGO: a chave do conjunto continua guardada no aparelho', await chaveGuardada())
+  const paradaEm = chamadasNaNuvem
+  await page.waitForTimeout(1800) // duas rondas de sobra
+  check('SYNC PAGO: parada de verdade, nem a ronda bate na nuvem', chamadasNaNuvem === paradaEm)
+
+  planoDoServidor = 'pago'
+  await marcaConta(page, 'pago')
+  await recarrega(page)
+  for (let i = 0; i < 60 && chamadasNaNuvem === paradaEm; i++) await page.waitForTimeout(100)
+  check('SYNC PAGO: voltando a pagar, ela volta sozinha sem parear de novo', chamadasNaNuvem > paradaEm)
+  check(
+    'SYNC PAGO: e o cartão volta a oferecer conectar outro aparelho',
+    (await page.locator('button:has-text("Conectar outro aparelho")').count()) === 1
+  )
+
+  // devolve o aparelho ao estado em que os próximos blocos esperam encontrá-lo:
+  // sem conta gravada, para o teste de entrar pelo e-mail começar do zero
+  await page.evaluate(async () => {
+    const db = await new Promise((res) => { const r = indexedDB.open('cifras', 1); r.onsuccess = () => res(r.result) })
+    await new Promise((res) => {
+      const t = db.transaction('kv', 'readwrite')
+      t.objectStore('kv').delete('conta')
+      t.objectStore('kv').delete('licenca')
+      t.objectStore('kv').delete('dono') // senão o próximo login cai na pergunta de troca de dono
+      t.oncomplete = res
+    })
+    db.close()
+  })
   await page.unroute('**/functions/v1/sync*')
+  await page.unroute('**/functions/v1/licenca*')
+  await page.unroute('**/auth/v1/**')
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
 
   // ---------- ordem do show pelos botões, teclado no palco e vídeo ----------
   await page.evaluate(() => { location.hash = '#/shows/show3008' })
@@ -853,7 +978,20 @@ try {
   const contaNova = await esperaAcervo((a) => a.musicas === 0 && a.shows === 0, 'conta nova vazia').catch(() => contaAcervo())
   check('DONO: conta nova começa sem música nenhuma', contaNova.musicas === 0)
   check('DONO: conta nova começa sem show nenhum', contaNova.shows === 0)
-  check('DONO: a sincronização da conta anterior fica desligada', (await page.locator('button:has-text("Ativar sincronização"), button:has-text("Começar um conjunto novo aqui")').count()) > 0)
+  // a chave do conjunto da conta anterior não pode sobreviver à troca: seria a
+  // conta nova escrevendo por cima do backup de outra pessoa. Aqui a conta nova
+  // está no grátis, então o cartão mostra a explicação da assinatura — o que
+  // interessa é que nada da conta anterior continua ligado
+  const syncDaAnterior = await page.evaluate(async () => {
+    const db = await new Promise((res) => { const r = indexedDB.open('cifras', 1); r.onsuccess = () => res(r.result) })
+    const row = await new Promise((res) => { const q = db.transaction('kv').objectStore('kv').get('sync'); q.onsuccess = () => res(q.result) })
+    db.close()
+    return !!(row?.value?.enabled && row.value.rawKey)
+  })
+  check(
+    'DONO: a sincronização da conta anterior fica desligada',
+    !syncDaAnterior && (await page.locator('button:has-text("Conectar outro aparelho")').count()) === 0
+  )
 
   // e a cópia guardada antes volta inteira
   await page.setInputFiles('input[type="file"][accept*="json"]', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backupAntes) })
@@ -862,6 +1000,248 @@ try {
   const depoisDoImport = await contaAcervo()
   check('DONO: a cópia de antes do login volta inteira depois (' + depoisDoImport.musicas + ' músicas)', depoisDoImport.musicas === acervoAntes.musicas && depoisDoImport.shows === acervoAntes.shows)
 
+  await page.unroute('**/auth/v1/**')
+
+  // ---------- licença: o app pergunta ao servidor se você pagou ----------
+  const DIA_MS = 86400000
+  let licencaResposta = { plano: 'pago', restamMs: 20 * DIA_MS, renova: true }
+  let licencaPerguntas = 0
+  let licencaFalha = false
+  await page.route('**/functions/v1/licenca*', (route) => {
+    licencaPerguntas++
+    if (licencaFalha) return route.fulfill({ status: 502, json: { error: 'servidor fora' } })
+    route.fulfill({ json: licencaResposta })
+  })
+  // o servidor de contas volta; a sessão que já está no aparelho continua valendo
+  userOk = true
+  userId = 'user-2'
+  emailPedido = 'outro@gmail.com'
+  await page.route('**/auth/v1/**', (route) => {
+    const url = route.request().url()
+    const body = route.request().postDataJSON?.() || {}
+    if (url.includes('/otp')) { emailPedido = body.email || ''; return route.fulfill({ json: {} }) }
+    if (url.includes('/verify')) return route.fulfill({ json: sessaoFalsa(body.email) })
+    if (url.includes('/token')) return route.fulfill({ json: sessaoFalsa(emailPedido) })
+    if (url.includes('/user')) return route.fulfill({ json: { id: userId, email: emailPedido } })
+    if (url.includes('/logout')) return route.fulfill({ status: 204, body: '' })
+    return route.fulfill({ status: 400, json: { msg: 'rota não simulada' } })
+  })
+
+  const gravaLicenca = (diasSemConferir, diasDeValidade) => page.evaluate(async ([sem, val]) => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const conta = await new Promise((res, rej) => { const t = db.transaction('kv', 'readonly'); const r = t.objectStore('kv').get('conta'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const userId = conta?.value?.userId || ''
+    await new Promise((res) => {
+      const t = db.transaction('kv', 'readwrite')
+      t.objectStore('kv').put({ key: 'licenca', value: { plano: 'pago', validaAte: Date.now() + val * 86400000, conferidaEm: Date.now() - sem * 86400000, renova: true, userId } })
+      t.oncomplete = res
+    })
+    db.close()
+  }, [diasSemConferir, diasDeValidade])
+
+  // ATIVA: quem paga vê que paga (a conta do bloco anterior continua entrada;
+  // recarregar é o gancho que faz o app perguntar ao servidor simulado)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  await page.waitForFunction(() => (document.querySelector('.content')?.textContent || '').includes('Plano: pago'), null, { timeout: 8000 }).catch(() => undefined)
+  const textoAtiva = await page.textContent('.content')
+  check('LICENÇA: quem paga aparece como pago na tela', textoAtiva.includes('Plano: pago'))
+  check('LICENÇA: sem aperto, o app não fica avisando de internet', !textoAtiva.includes('precisa de internet'))
+
+  // PALCO: no meio do show o app não pergunta nada a ninguém.
+  // Antes, deixa a resposta guardada VELHA (o servidor recusa a consulta do
+  // boot), senão a pergunta adiada seria dispensada por já ter resposta fresca
+  ruidoEsperado = /502 \(Bad Gateway\)/ // a recusa é de propósito, não é defeito
+  licencaFalha = true
+  await gravaLicenca(6, 20)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  // qualquer show com música serve; o id vem do banco, não de um nome fixo
+  const showParaTocar = await page.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const shows = await new Promise((res, rej) => { const t = db.transaction('shows', 'readonly'); const r = t.objectStore('shows').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    db.close()
+    return (shows.find((s) => s.items && s.items.length > 0) || {}).id || ''
+  })
+  check('LICENÇA: existe um show com música para o teste de palco', !!showParaTocar)
+  await page.evaluate((id) => { location.hash = '#/play/' + id + '/0' }, showParaTocar)
+  await page.waitForSelector('.readerbar', { timeout: 8000 })
+  const antesDoPalco = licencaPerguntas
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('online'))
+  })
+  await page.waitForTimeout(700)
+  check('LICENÇA: no palco o app não pergunta nada ao servidor', licencaPerguntas === antesDoPalco)
+  // sair do palco pela navegação: o que importa aqui é deixar a rota #/play
+  licencaFalha = false
+  ruidoEsperado = null
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  await page.waitForTimeout(800)
+  check('LICENÇA: saindo do palco, a pergunta que ficou esperando acontece', licencaPerguntas > antesDoPalco)
+
+  // TOLERÂNCIA: sem internet, quem paga continua pagando dentro dos 7 dias
+  // TOLERÂNCIA: 6 dias sem internet e quem paga continua pagando
+
+  // 5,5 dias e não 6: exatamente 6 cai em cima da virada de "1 dia" para
+  // "hoje", e o teste passaria a depender de quanto o navegador demorou
+  await gravaLicenca(5.5, 20)
+  await page.context().setOffline(true)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  const textoTolerancia = await page.textContent('.content')
+  check('LICENÇA: em modo avião, quem paga continua pagando', textoTolerancia.includes('Plano: pago'))
+  check('LICENÇA: e o app avisa quantos dias faltam para precisar de internet', /precisa de internet em 1 dia\b/.test(textoTolerancia))
+
+  // EXPIRADA: passados os 7 dias, volta ao grátis sem apagar nada
+  const acervoAntesDaExpiracao = await contaAcervo()
+  await gravaLicenca(9, 20)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  const textoExpirada = await page.textContent('.content')
+  const acervoDepoisDaExpiracao = await contaAcervo()
+  check('LICENÇA: passados os 7 dias sem conferir, volta aos limites do grátis', textoExpirada.includes('Plano: grátis'))
+  check('LICENÇA: e o recado explica que basta conectar uma vez', /conecte na internet/i.test(textoExpirada))
+  check('LICENÇA: voltar ao grátis não apaga música nenhuma', acervoDepoisDaExpiracao.musicas === acervoAntesDaExpiracao.musicas)
+  await page.context().setOffline(false)
+
+  // a resposta que chega atrasada não pode virar licença de quem entrou depois
+  await page.context().setOffline(false)
+  licencaResposta = { plano: 'pago', restamMs: 20 * DIA_MS, renova: true }
+  let segurarLicenca = true
+  await page.unroute('**/functions/v1/licenca*')
+  await page.route('**/functions/v1/licenca*', async (route) => {
+    licencaPerguntas++
+    if (segurarLicenca) await new Promise((r) => setTimeout(r, 1500))
+    route.fulfill({ json: licencaResposta })
+  })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  // com a resposta ainda no ar, sai da conta
+  await page.click('button:has-text("Sair da conta")')
+  await page.waitForSelector('.confirmbox', { timeout: 5000 })
+  await page.click('.confirmbox .btn.danger')
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+  await page.waitForTimeout(2000) // tempo de sobra para a resposta atrasada voltar
+  const semConta = await page.textContent('.content')
+  check('LICENÇA: resposta atrasada não deixa ninguém pago sem conta', !semConta.includes('Plano: pago'))
+  const licencaNoBanco = await page.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const linha = await new Promise((res, rej) => { const t = db.transaction('kv', 'readonly'); const r = t.objectStore('kv').get('licenca'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    db.close()
+    return linha?.value || null
+  })
+  check('LICENÇA: e não grava pago no aparelho depois de sair', !licencaNoBanco || licencaNoBanco.plano !== 'pago')
+  segurarLicenca = false
+
+  await page.unroute('**/functions/v1/licenca*')
+  await page.unroute('**/auth/v1/**')
+
+  // ---------- limites do plano grátis ----------
+  // O aparelho do teste tem 18 músicas e vários shows. Para as travas
+  // aparecerem é preciso percorrer o caminho real: pagar e depois cair para o
+  // grátis. Quem nunca pagou não perde o que já tinha, só não pode crescer.
+  licencaResposta = { plano: 'pago', restamMs: 20 * DIA_MS, renova: true }
+  segurarLicenca = false
+  await page.route('**/functions/v1/licenca*', (route) => { licencaPerguntas++; route.fulfill({ json: licencaResposta }) })
+  await page.route('**/auth/v1/**', (route) => {
+    const url = route.request().url()
+    const body = route.request().postDataJSON?.() || {}
+    if (url.includes('/otp')) { emailPedido = body.email || ''; return route.fulfill({ json: {} }) }
+    if (url.includes('/verify')) return route.fulfill({ json: sessaoFalsa(body.email) })
+    if (url.includes('/token')) return route.fulfill({ json: sessaoFalsa(emailPedido) })
+    if (url.includes('/user')) return route.fulfill({ json: { id: userId, email: emailPedido } })
+    if (url.includes('/logout')) return route.fulfill({ status: 204, body: '' })
+    return route.fulfill({ status: 400, json: { msg: 'rota não simulada' } })
+  })
+  // entra de novo (o bloco anterior terminou fora da conta)
+  await entraCom('pagante@gmail.com')
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  await page.waitForFunction(() => (document.querySelector('.content')?.textContent || '').includes('Plano: pago'), null, { timeout: 8000 })
+  // agora a assinatura acaba. Um dia sem conferir e o app volta a perguntar:
+  // é assim que a notícia chega de verdade, não por um evento inventado
+  licencaResposta = { plano: 'gratis', restamMs: 0, renova: false }
+  await gravaLicenca(1, 20)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  await page.waitForFunction(() => (document.querySelector('.content')?.textContent || '').includes('Plano: grátis'), null, { timeout: 8000 })
+
+  const acervoNoGratis = await contaAcervo()
+  check('LIMITE: o teste tem repertório acima do teto (' + acervoNoGratis.musicas + ' músicas)', acervoNoGratis.musicas > 8)
+  const textoMais = await page.textContent('.content')
+  check('LIMITE: a tela Mais diz o plano e que o limite já estourou', /Plano: grátis/.test(textoMais) && /no limite/.test(textoMais))
+
+  // biblioteca: as que passaram do oitavo lugar aparecem trancadas, não somem
+  await page.click('.tabbar button:has-text("Biblioteca")')
+  await page.waitForSelector('.topbar h1:has-text("Biblioteca")', { timeout: 8000 })
+  await page.waitForSelector('.list .card', { timeout: 8000 })
+  const naBiblioteca = await page.evaluate(() => ({
+    total: document.querySelectorAll('.list .card').length,
+    travadas: document.querySelectorAll('.list .card.travado').length,
+    cadeados: [...document.querySelectorAll('.list .card .badge')].filter((b) => b.textContent.includes('🔒')).length,
+  }))
+  check('LIMITE: nenhuma música sumiu da biblioteca (' + naBiblioteca.total + ' na tela)', naBiblioteca.total === acervoNoGratis.musicas)
+  check('LIMITE: as 8 primeiras seguem abertas e o resto fica trancado', naBiblioteca.travadas === acervoNoGratis.musicas - 8)
+  check('LIMITE: a trava aparece com cadeado, não escondida', naBiblioteca.cadeados === naBiblioteca.travadas)
+
+  // tocar numa trancada abre a folha da assinatura, com preço e "nada é apagado"
+  await page.click('.list .card.travado .grow')
+  await page.waitForSelector('.sheet h2:has-text("Assinando, isso some")', { timeout: 8000 })
+  const folha = await page.textContent('.sheet')
+  check('LIMITE: a folha de assinatura diz o preço', folha.includes('R$ 29,90'))
+  check('LIMITE: e promete, por escrito, que nada é apagado', /nada é apagado/i.test(folha))
+  await page.click('.sheet button:has-text("Agora não")')
+
+  // o ＋ da biblioteca também para no limite, em vez de deixar salvar e falhar
+  await page.click('button[aria-label="Adicionar música"]')
+  await page.waitForSelector('.sheet h2:has-text("Assinando, isso some")', { timeout: 8000 })
+  check('LIMITE: o botão de adicionar para no teto, sem tela de erro', true)
+  await page.click('.sheet button:has-text("Agora não")')
+
+  // shows: o segundo em diante fica trancado, e o ＋ oferece a assinatura
+  await page.click('.tabbar button:has-text("Shows")')
+  await page.waitForSelector('.topbar h1:has-text("Shows")', { timeout: 8000 })
+  await page.waitForSelector('.list .card', { timeout: 8000 })
+  const nosShows = await page.evaluate(() => ({
+    total: document.querySelectorAll('.list .card').length,
+    travados: document.querySelectorAll('.list .card.travado').length,
+  }))
+  check('LIMITE: nenhum show sumiu (' + nosShows.total + ' na tela)', nosShows.total === acervoNoGratis.shows)
+  check('LIMITE: só o primeiro show fica aberto', nosShows.travados === Math.max(0, acervoNoGratis.shows - 1))
+  await page.click('button[aria-label="Novo show"]')
+  await page.waitForSelector('.sheet h2:has-text("Assinando, isso some")', { timeout: 8000 })
+  check('LIMITE: criar o segundo show oferece a assinatura', true)
+  await page.click('.sheet button:has-text("Agora não")')
+
+  // DESTRAVAR: voltar a pagar libera tudo na hora, sem refazer nada
+  licencaResposta = { plano: 'pago', restamMs: 20 * DIA_MS, renova: true }
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  await page.waitForFunction(() => (document.querySelector('.content')?.textContent || '').includes('Plano: pago'), null, { timeout: 8000 })
+  await page.click('.tabbar button:has-text("Biblioteca")')
+  await page.waitForSelector('.topbar h1:has-text("Biblioteca")', { timeout: 8000 })
+  await page.waitForSelector('.list .card', { timeout: 8000 })
+  const depoisDePagar = await page.evaluate(() => ({
+    total: document.querySelectorAll('.list .card').length,
+    travadas: document.querySelectorAll('.list .card.travado').length,
+  }))
+  check('LIMITE: voltar a pagar destrava tudo na hora', depoisDePagar.travadas === 0)
+  check('LIMITE: e o repertório continua o mesmo, música por música', depoisDePagar.total === acervoNoGratis.musicas)
+
+  await page.unroute('**/functions/v1/licenca*')
   await page.unroute('**/auth/v1/**')
 
   // marca de versão: precisa vir da rede, senão o app nunca percebe cache pela metade

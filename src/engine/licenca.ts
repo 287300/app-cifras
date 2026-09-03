@@ -97,7 +97,10 @@ export function planoEfetivo(licenca: Licenca, agora: number): Plano {
 /** Dias que faltam para o app exigir internet. Negativo quando já exigiu. */
 export function diasAteExigirInternet(licenca: Licenca, agora: number): number {
   if (licenca.plano !== 'pago') return Infinity
-  return Math.floor((licenca.conferidaEm + TOLERANCIA_DIAS * DIA - agora) / DIA)
+  const faltam = Math.floor((licenca.conferidaEm + TOLERANCIA_DIAS * DIA - agora) / DIA)
+  // teto: com o relógio do aparelho recuado, esta conta cresceria sem limite e
+  // a licença nunca mais precisaria de internet
+  return Math.min(TOLERANCIA_DIAS, faltam)
 }
 
 /**

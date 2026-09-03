@@ -318,3 +318,8 @@ textarea { font-family: var(--mono); font-size: 14px; line-height: 1.45; white-s
   /* vem depois de propósito: com o vídeo aberto a conta acima não vale mais */
   .reader.withvideo .content { padding-left: 14px; padding-right: 14px; }
 }
+
+/* Cartão de música ou show que passou do limite do plano grátis.
+   Continua na lista, legível e exportável: o que muda é só a porta. */
+.card.travado { opacity: .62; border-style: dashed; }
+.card.travado .title { font-style: italic; }

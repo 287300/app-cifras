@@ -6,7 +6,10 @@
 // YouTube mostra); quem toca é o player oficial embutido no app.
 
 const ALLOWED_ORIGINS = new Set([
+  'https://cifrapronta.com.br',
+  'https://www.cifrapronta.com.br',
   'https://287300.github.io',
+  // endereço antigo, mantido enquanto ele redireciona para o novo
   'https://cifrasdoeder.com.br',
   'https://www.cifrasdoeder.com.br',
   'http://localhost:8080',
@@ -19,7 +22,7 @@ const UA =
 
 function corsHeaders(origin: string): Record<string, string> {
   return {
-    'Access-Control-Allow-Origin': ALLOWED_ORIGINS.has(origin) ? origin : 'https://287300.github.io',
+    'Access-Control-Allow-Origin': ALLOWED_ORIGINS.has(origin) ? origin : 'https://cifrapronta.com.br',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
   }

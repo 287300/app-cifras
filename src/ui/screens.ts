@@ -3,7 +3,11 @@
 
 import { contaAtual, entrarComCodigo, onContaChange, pedirCodigo, recadoDoLink, sair } from '../conta.ts'
 import { ajustaDonoPelaTela, type AvisoDeTroca, type RespostaDaTroca } from '../dono.ts'
+import { CONTATO, LINK, PRECO, VANTAGENS } from '../compra.ts'
+import { quantoFalta, recadoAoSalvar, travadosNoPlano } from '../engine/limites.ts'
+import { avisoDaLicenca, jaFoiPagante, limitesValem, onLicencaChange, planoAtual } from '../licenca.ts'
 import { normalizaCodigo, sugestaoDeEmail } from '../engine/conta.ts'
+import { motivoParaAssinar, textoDoBloqueio } from '../engine/sincronizacao.ts'
 import { parseCifra } from '../engine/parse.ts'
 import { extractImportHeader } from '../engine/importHeader.ts'
 import { guessTom } from '../engine/guessTom.ts'
@@ -36,6 +40,54 @@ function displayTom(song: Song, override?: number): string {
   const semis = override ?? song.semitones
   if (!song.tom) return '—'
   return transposeKey(song.tom, semis)
+}
+
+// ---------- limites do plano grátis ----------
+//
+// Uma regra vale acima de todas: NADA DISSO APARECE NO PALCO. Travar uma
+// música no meio de um show seria o pior defeito possível deste app, então o
+// limite é cobrado na biblioteca e na hora de criar, nunca durante a leitura.
+
+function travas(): { musicas: Set<string>; shows: Set<string> } {
+  if (!limitesValem()) return { musicas: new Set(), shows: new Set() }
+  return travadosNoPlano(planoAtual(), [...store.songs.values()], [...store.shows.values()], jaFoiPagante())
+}
+
+/** Cabe mais uma música no plano de agora? Sem conta, cabe sempre. */
+function cabeMaisUma(): boolean {
+  return !limitesValem() || quantoFalta(planoAtual(), store.songs.size) !== 0
+}
+
+/** A folha do que se ganha pagando. `motivo` diz por que ela apareceu. */
+function folhaDeAssinatura(motivo: string): void {
+  const acao = LINK
+    ? h('a', { className: 'btn primary block', href: LINK, target: '_blank', rel: 'noopener' }, 'Quero assinar')
+    : h(
+        'button',
+        {
+          className: 'btn primary block',
+          onClick: () => {
+            close()
+            alertSheet(
+              'Para assinar',
+              `Escreva para ${CONTATO} dizendo que quer assinar o app. A liberação é feita na hora e nada do que está neste aparelho muda.`
+            )
+          },
+        },
+        'Quero assinar'
+      )
+  const close = sheet(
+    h('h2', null, 'Assinando, isso some'),
+    h('p', { style: { marginBottom: '10px' } }, motivo),
+    h(
+      'ul',
+      { style: { margin: '0 0 14px 18px', padding: '0', lineHeight: '1.7' } },
+      ...VANTAGENS.map((v) => h('li', null, v))
+    ),
+    h('p', { className: 'hint', style: { marginBottom: '14px' } }, `${PRECO}. Cancela quando quiser, e nada é apagado: o que está no aparelho continua seu, travado mas inteiro, e você pode exportar tudo a qualquer momento.`),
+    acao,
+    h('button', { className: 'btn block', style: { marginTop: '10px' }, onClick: () => close() }, 'Agora não')
+  )
 }
 
 const TOM_OPTIONS = ['C', 'C#', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B', 'Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm']
@@ -99,7 +151,21 @@ function tomSelect(value: string): HTMLSelectElement {
 
 export function showsScreen(): HTMLElement {
   const root = h('div', { className: 'screen' })
-  const add = h('button', { className: 'iconbtn', 'aria-label': 'Novo show', onClick: () => newShowSheet() }, '＋')
+  const add = h(
+    'button',
+    {
+      className: 'iconbtn',
+      'aria-label': 'Novo show',
+      onClick: () => {
+        if (limitesValem() && planoAtual() === 'gratis' && store.shows.size >= 1) {
+          folhaDeAssinatura('O plano grátis monta 1 show. Para levar mais de um repertório pronto, a assinatura libera quantos você quiser.')
+          return
+        }
+        newShowSheet()
+      },
+    },
+    '＋'
+  )
   root.append(topbar('Shows', { action: add }))
   const content = h('div', { className: 'content' })
   const shows = store.showList()
@@ -107,18 +173,26 @@ export function showsScreen(): HTMLElement {
     content.append(empty('🎤', 'Nenhum show ainda. Toque em ＋ para criar o primeiro e montar a setlist.'))
   } else {
     const list = h('div', { className: 'list' })
+    const trancados = travas().shows
     for (const show of shows) {
+      const travado = trancados.has(show.id)
       list.append(
         h(
           'button',
-          { className: 'card', onClick: () => navigate({ name: 'show', id: show.id }) },
+          {
+            className: travado ? 'card travado' : 'card',
+            onClick: () =>
+              travado
+                ? folhaDeAssinatura(`"${show.name}" está aqui inteirinho, só trancado: o plano grátis abre 1 show.`)
+                : navigate({ name: 'show', id: show.id }),
+          },
           h(
             'div',
             { className: 'grow' },
             h('div', { className: 'title' }, show.name),
             h('div', { className: 'meta' }, `${formatDate(show.date)} · ${show.items.length} música${show.items.length === 1 ? '' : 's'}`)
           ),
-          h('span', { className: 'hint' }, '›')
+          h('span', { className: 'hint' }, travado ? '🔒' : '›')
         )
       )
     }
@@ -663,7 +737,21 @@ export function playerScreen(showId: string, idx: number): HTMLElement {
 
 export function libraryScreen(): HTMLElement {
   const root = h('div', { className: 'screen' })
-  const add = h('button', { className: 'iconbtn', 'aria-label': 'Adicionar música', onClick: () => navigate({ name: 'add', to: null }) }, '＋')
+  const add = h(
+    'button',
+    {
+      className: 'iconbtn',
+      'aria-label': 'Adicionar música',
+      onClick: () => {
+        if (!cabeMaisUma()) {
+          folhaDeAssinatura('Você chegou nas 8 músicas do plano grátis. Nada foi apagado, e nada será.')
+          return
+        }
+        navigate({ name: 'add', to: null })
+      },
+    },
+    '＋'
+  )
   root.append(topbar('Biblioteca', { action: add }))
   const content = h('div', { className: 'content' })
   const search = h('input', { placeholder: 'Buscar por nome ou artista…', style: { marginBottom: '12px' } }) as HTMLInputElement
@@ -680,18 +768,27 @@ export function libraryScreen(): HTMLElement {
       )
       return
     }
+    const trancadas = travas().musicas
     for (const song of songs) {
+      const travada = trancadas.has(song.id)
       list.append(
         h(
           'div',
-          { className: 'card' },
+          { className: travada ? 'card travado' : 'card' },
           h(
             'button',
-            { className: 'grow', style: { textAlign: 'left', minWidth: '0' }, onClick: () => navigate({ name: 'song', id: song.id }) },
+            {
+              className: 'grow',
+              style: { textAlign: 'left', minWidth: '0' },
+              onClick: () =>
+                travada
+                  ? folhaDeAssinatura(`"${song.title}" continua aqui, inteira: o plano grátis abre 8 músicas, e esta passou do oitavo lugar.`)
+                  : navigate({ name: 'song', id: song.id }),
+            },
             h('div', { className: 'title' }, song.title),
             h('div', { className: 'meta' }, song.artist || ' ')
           ),
-          h('span', { className: 'badge' }, displayTom(song)),
+          h('span', { className: 'badge' }, travada ? '🔒' : displayTom(song)),
           h(
             'button',
             {
@@ -799,8 +896,15 @@ export function addScreen(to: string | null): HTMLElement {
             body.focus()
             return
           }
+          // trava de porta: chegar aqui já no teto só acontece por caminho
+          // torto (voltar no histórico), e mesmo assim nada é perdido
+          if (!cabeMaisUma()) {
+            folhaDeAssinatura('Você chegou nas 8 músicas do plano grátis. O que você acabou de colar continua aí na tela.')
+            return
+          }
           const song = await store.addSong({ title: title.value, artist: artist.value, tom: tom.value, body: body.value })
           pescaVideo(song.id) // o clipe vem sozinho atrás, sem segurar a tela
+          const recado = recadoAoSalvar(planoAtual(), store.songs.size)
           if (to) {
             const show = store.shows.get(to)
             if (show) await store.updateShow(to, { items: [...show.items, { songId: song.id }] })
@@ -808,6 +912,7 @@ export function addScreen(to: string | null): HTMLElement {
           } else {
             navigate({ name: 'song', id: song.id })
           }
+          if (recado) alertSheet('Última do plano grátis', recado)
         },
       },
       'Salvar música'
@@ -1150,12 +1255,26 @@ function contaCard(): HTMLElement {
     const parts: (HTMLElement | null)[] = [h('h2', { style: { fontSize: '18px', margin: '8px 0' } }, 'Sua conta')]
 
     if (conta) {
+      const aviso = avisoDaLicenca()
       parts.push(
         h(
           'p',
           { className: 'hint', style: { marginBottom: '10px' } },
           `Entrando como ${conta.email || 'sua conta'}. As músicas continuam gravadas neste aparelho, com ou sem internet.`
         ),
+        h(
+          'p',
+          { className: 'hint', style: { marginBottom: '10px' } },
+          planoAtual() === 'pago'
+            ? 'Plano: pago. Biblioteca sem limite, vários shows e sincronização entre aparelhos.'
+            : `Plano: grátis. Até 8 músicas e 1 show montado. ${
+                quantoFalta('gratis', store.songs.size) === 0
+                  ? 'Você já está no limite.'
+                  : `Ainda cabem ${quantoFalta('gratis', store.songs.size)}.`
+              }`
+        ),
+        // o aviso de reconectar aparece cedo e em casa, nunca como surpresa
+        aviso ? h('p', { className: 'hint', style: { marginBottom: '10px', color: 'var(--accent)' } }, aviso) : null,
         h(
           'button',
           {
@@ -1255,9 +1374,20 @@ function contaCard(): HTMLElement {
     wrap.replaceChildren(...parts.filter((p): p is HTMLElement => p !== null))
   }
 
+  const solta = () => {
+    un()
+    unLic()
+  }
   const un = onContaChange(() => {
     if (!wrap.isConnected) {
-      un()
+      solta()
+      return
+    }
+    render()
+  })
+  const unLic = onLicencaChange(() => {
+    if (!wrap.isConnected) {
+      solta()
       return
     }
     render()
@@ -1278,6 +1408,48 @@ function syncCard(): HTMLElement {
     const parts: (HTMLElement | null)[] = [
       h('h2', { style: { fontSize: '18px', margin: '8px 0' } }, 'Sincronizar entre aparelhos'),
     ]
+    // Recurso da assinatura: quem não pode usar entende o motivo em uma frase,
+    // com o caminho da compra ao lado, em vez de tomar um erro depois de tentar.
+    if (st.bloqueio !== 'nenhum') {
+      parts.push(
+        h('p', { className: 'hint', style: { marginBottom: '10px' } }, textoDoBloqueio(st.bloqueio) as string),
+        st.enabled
+          ? h(
+              'p',
+              { className: 'hint', style: { marginBottom: '10px' } },
+              `Ela continua ligada neste aparelho (${st.device}), só parada. Voltando a valer, ela recomeça sozinha: não é preciso conectar os aparelhos de novo.`
+            )
+          : null,
+        st.bloqueio === 'sem-plano'
+          ? h(
+              'button',
+              {
+                className: 'btn primary block',
+                style: { marginBottom: '10px' },
+                onClick: () => folhaDeAssinatura(motivoParaAssinar()),
+              },
+              'Quero assinar'
+            )
+          : null,
+        st.enabled
+          ? h(
+              'button',
+              {
+                className: 'btn block',
+                onClick: async () => {
+                  if (await confirmDialog('Desligar a sincronização neste aparelho? As músicas daqui continuam intactas.', 'Desligar')) {
+                    await disableSync()
+                    render()
+                  }
+                },
+              },
+              'Desligar'
+            )
+          : null
+      )
+      wrap.replaceChildren(...parts.filter((p): p is HTMLElement => p !== null))
+      return
+    }
     if (!st.enabled) {
       const deviceInput = h('input', {
         type: 'text',

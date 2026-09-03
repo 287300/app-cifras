@@ -3,6 +3,7 @@
 
 import { initConta } from './conta.ts'
 import { ligaGuardaDaBiblioteca } from './dono.ts'
+import { initLicenca } from './licenca.ts'
 import { currentRoute, navigate, onRouteChange, type Route } from './router.ts'
 import { VERSAO } from './version.ts'
 import { store } from './store.ts'
@@ -129,6 +130,7 @@ async function boot(): Promise<void> {
   await initConta()
   // de quem é a biblioteca deste aparelho: adota na 1ª conta, nunca mistura
   ligaGuardaDaBiblioteca(perguntaTrocaDeConta, avisoSimples)
+  void initLicenca() // pergunta ao servidor se a pessoa paga (não bloqueia a abertura)
   void initSync() // o carteiro entre aparelhos (não bloqueia a abertura)
   render(currentRoute())
   onRouteChange(render)
