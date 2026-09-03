@@ -102,6 +102,13 @@ self.addEventListener('fetch', (event) => {
     caches.match(req, { ignoreSearch: true }).then((hit) => {
       if (hit) return hit;
       if (req.mode === 'navigate') {
+        // A página de venda tem endereço próprio e NÃO é a casca do app. Sem
+        // esta exceção o service worker devolvia o app para /comecar, e o
+        // anúncio caía num app vazio dizendo "Nenhum show ainda" — exatamente
+        // o problema que a página existe para resolver.
+        if (/\\/comecar\\/?$/.test(url.pathname)) {
+          return caches.match('./comecar.html').then((p) => p || fetch(req));
+        }
         return caches.match('./index.html').then((page) => page || fetch(req));
       }
       return fetch(req).then((res) => {
