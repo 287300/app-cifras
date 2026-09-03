@@ -1,15 +1,16 @@
 // Ponto de entrada: registra o service worker (offline), carrega o estado
 // e liga o roteador às telas, com a barra de abas nas telas de lista.
 
-import { initConta } from './conta.ts'
+import { contaAtual, initConta } from './conta.ts'
 import { ligaGuardaDaBiblioteca } from './dono.ts'
+import { precisaDeCadastro } from './engine/porta.ts'
 import { initLicenca } from './licenca.ts'
 import { currentRoute, navigate, onRouteChange, type Route } from './router.ts'
 import { VERSAO } from './version.ts'
 import { store } from './store.ts'
 import { initSync } from './sync.ts'
 import { h, clear } from './ui/dom.ts'
-import { addScreen, avisoSimples, botaoScreen, buscarScreen, cargaScreen, editScreen, libraryScreen, moreScreen, perguntaTrocaDeConta, planbScreen, playerScreen, showEditScreen, showsScreen, songScreen } from './ui/screens.ts'
+import { addScreen, avisoSimples, botaoScreen, buscarScreen, cargaScreen, editScreen, libraryScreen, moreScreen, perguntaTrocaDeConta, planbScreen, playerScreen, portaScreen, showEditScreen, showsScreen, songScreen } from './ui/screens.ts'
 
 const rootEl = document.getElementById('root')!
 
@@ -32,6 +33,13 @@ function tabbar(active: 'shows' | 'library' | 'more'): HTMLElement {
 
 function render(route: Route): void {
   clear(rootEl as HTMLElement)
+  // A porta: aparelho novo cria a conta grátis antes de ver qualquer tela.
+  // Quem já tem repertório aqui dentro nunca passa por isso — a regra está
+  // em engine/porta.ts e olha só para o aparelho, nunca para a rede.
+  if (precisaDeCadastro({ temConta: contaAtual() !== null, temRepertorio: store.songs.size > 0 || store.shows.size > 0 })) {
+    rootEl.append(portaScreen(() => render(currentRoute())))
+    return
+  }
   switch (route.name) {
     case 'shows':
       rootEl.append(showsScreen(), tabbar('shows'))

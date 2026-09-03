@@ -1326,6 +1326,88 @@ function codigoSheet(email: string, onDone: () => void): void {
 }
 
 /** Cartão da conta: entrar com o e-mail, ver quem entrou e sair. */
+/**
+ * Campo de e-mail, avisos e botão de entrar. Um só código para os dois lugares
+ * que pedem conta: o cartão da tela Mais e a porta de entrada do aparelho novo.
+ *
+ * Vive separado porque aqui mora sutileza que não pode divergir entre as duas
+ * telas: o palpite de erro de dedo no e-mail (com a saída "não, é esse mesmo"),
+ * o recado que sobrou de um link de e-mail vencido e a folha dos 6 números.
+ */
+function formularioDeEntrada(aoEntrar: () => void): HTMLElement[] {
+  const emailInput = h('input', {
+    type: 'email',
+    inputMode: 'email',
+    autocomplete: 'email',
+    autocapitalize: 'off',
+    spellcheck: false,
+    placeholder: 'seu@email.com',
+    style: { marginBottom: '10px' },
+  }) as HTMLInputElement
+  const aviso = h('p', { className: 'hint', style: { marginBottom: '10px', display: 'none' } })
+  // o link do e-mail pode ter chegado vencido ou sem sinal: o recado que
+  // sobrou daquela tentativa aparece aqui, senão a pessoa fica sem saber
+  const recado = recadoDoLink()
+  if (recado) {
+    aviso.style.display = ''
+    aviso.textContent = recado
+  }
+  let liberado = '' // e-mail que a pessoa confirmou mesmo com cara de erro de dedo
+
+  const btn = h('button', { className: 'btn primary block' }, 'Entrar com meu e-mail') as HTMLButtonElement
+  btn.addEventListener('click', async () => {
+    const digitado = emailInput.value
+    const sugestao = sugestaoDeEmail(digitado)
+    if (sugestao && liberado !== digitado.trim().toLowerCase()) {
+      aviso.style.display = ''
+      aviso.replaceChildren(
+        document.createTextNode('Você quis dizer ' + sugestao + '? '),
+        h(
+          'button',
+          {
+            className: 'btn',
+            style: { marginLeft: '6px' },
+            onClick: () => {
+              emailInput.value = sugestao
+              aviso.style.display = 'none'
+              btn.click()
+            },
+          },
+          'Sim, corrigir'
+        ),
+        h(
+          'button',
+          {
+            className: 'btn',
+            style: { marginLeft: '6px' },
+            onClick: () => {
+              liberado = digitado.trim().toLowerCase()
+              aviso.style.display = 'none'
+              btn.click()
+            },
+          },
+          'Não, é esse mesmo'
+        )
+      )
+      return
+    }
+    btn.textContent = 'Mandando o código…'
+    btn.disabled = true
+    try {
+      const email = await pedirCodigo(digitado)
+      aviso.style.display = 'none'
+      codigoSheet(email, aoEntrar)
+    } catch (err) {
+      aviso.style.display = ''
+      aviso.textContent = err instanceof Error ? err.message : 'Não deu certo.'
+    }
+    btn.textContent = 'Entrar com meu e-mail'
+    btn.disabled = false
+  })
+
+  return [emailInput, aviso, btn]
+}
+
 function contaCard(): HTMLElement {
   const wrap = h('div', { style: { marginBottom: '24px' } })
 
@@ -1369,85 +1451,13 @@ function contaCard(): HTMLElement {
         )
       )
     } else {
-      const emailInput = h('input', {
-        type: 'email',
-        inputMode: 'email',
-        autocomplete: 'email',
-        autocapitalize: 'off',
-        spellcheck: false,
-        placeholder: 'seu@email.com',
-        style: { marginBottom: '10px' },
-      }) as HTMLInputElement
-      const aviso = h('p', { className: 'hint', style: { marginBottom: '10px', display: 'none' } })
-      // o link do e-mail pode ter chegado vencido ou sem sinal: o recado que
-      // sobrou daquela tentativa aparece aqui, senão a pessoa fica sem saber
-      const recado = recadoDoLink()
-      if (recado) {
-        aviso.style.display = ''
-        aviso.textContent = recado
-      }
-      let liberado = '' // e-mail que a pessoa confirmou mesmo com cara de erro de dedo
-
-      const btn = h('button', { className: 'btn primary block' }, 'Entrar com meu e-mail') as HTMLButtonElement
-      btn.addEventListener('click', async () => {
-        const digitado = emailInput.value
-        const sugestao = sugestaoDeEmail(digitado)
-        if (sugestao && liberado !== digitado.trim().toLowerCase()) {
-          aviso.style.display = ''
-          aviso.replaceChildren(
-            document.createTextNode('Você quis dizer ' + sugestao + '? '),
-            h(
-              'button',
-              {
-                className: 'btn',
-                style: { marginLeft: '6px' },
-                onClick: () => {
-                  emailInput.value = sugestao
-                  aviso.style.display = 'none'
-                  btn.click()
-                },
-              },
-              'Sim, corrigir'
-            ),
-            h(
-              'button',
-              {
-                className: 'btn',
-                style: { marginLeft: '6px' },
-                onClick: () => {
-                  liberado = digitado.trim().toLowerCase()
-                  aviso.style.display = 'none'
-                  btn.click()
-                },
-              },
-              'Não, é esse mesmo'
-            )
-          )
-          return
-        }
-        btn.textContent = 'Mandando o código…'
-        btn.disabled = true
-        try {
-          const email = await pedirCodigo(digitado)
-          aviso.style.display = 'none'
-          codigoSheet(email, render)
-        } catch (err) {
-          aviso.style.display = ''
-          aviso.textContent = err instanceof Error ? err.message : 'Não deu certo.'
-        }
-        btn.textContent = 'Entrar com meu e-mail'
-        btn.disabled = false
-      })
-
       parts.push(
         h(
           'p',
           { className: 'hint', style: { marginBottom: '10px' } },
           'Entre com o e-mail e pronto: o app manda 6 números para você digitar. Senha não existe aqui, então não tem senha para esquecer.'
         ),
-        emailInput,
-        aviso,
-        btn
+        ...formularioDeEntrada(render)
       )
     }
     wrap.replaceChildren(...parts.filter((p): p is HTMLElement => p !== null))
@@ -1689,6 +1699,72 @@ function syncCard(): HTMLElement {
   })
   render()
   return wrap
+}
+
+/**
+ * A porta de entrada do aparelho novo: cria a conta grátis antes de abrir o app.
+ *
+ * Quem chega aqui veio da página de venda, onde já leu o que o produto faz e
+ * quanto custa. Então esta tela não vende de novo: ela pede o e-mail e sai da
+ * frente. Repetir o anúncio aqui só atrasaria quem já decidiu.
+ *
+ * Duas saídas de emergência, e as duas existem por motivo de palco:
+ *
+ * - quem JÁ TEM música gravada neste aparelho nunca chega aqui (a regra está em
+ *   engine/porta.ts). Nada de trancar músico fora do próprio repertório.
+ * - quem está reinstalando com um backup na mão restaura por aqui mesmo. Sem
+ *   isso, um cliente antigo trocando de iPad ficaria preso numa tela de
+ *   cadastro sem conseguir chegar ao próprio arquivo.
+ */
+export function portaScreen(aoLiberar: () => void): HTMLElement {
+  const root = h('div', { className: 'screen' })
+  const content = h('div', { className: 'content', style: { maxWidth: '460px', margin: '0 auto', paddingTop: '10vh' } })
+
+  const arquivo = h('input', { type: 'file', accept: 'application/json,.json', style: { display: 'none' } }) as HTMLInputElement
+  arquivo.addEventListener('change', async () => {
+    const f = arquivo.files?.[0]
+    if (!f) return
+    try {
+      const r = await store.importData(await f.text())
+      alertSheet('Backup importado', `Músicas: ${r.addedSongs} · shows: ${r.addedShows}. Bem-vindo de volta.`)
+      aoLiberar()
+    } catch (err) {
+      alertSheet('Não deu certo', err instanceof Error ? err.message : 'Arquivo inválido.')
+    }
+    arquivo.value = ''
+  })
+
+  content.append(
+    h('div', { style: { fontSize: '28px', fontWeight: '700', marginBottom: '6px' } }, '🎼 Cifra Pronta'),
+    h('h1', { style: { fontSize: '24px', lineHeight: '1.25', margin: '14px 0 10px' } }, 'Crie sua conta para começar'),
+    h(
+      'p',
+      { className: 'hint', style: { marginBottom: '18px' } },
+      'Só o e-mail. Chega um código de 6 números para você digitar, e pronto. Senha não existe aqui, então não tem senha para esquecer.'
+    ),
+    ...formularioDeEntrada(aoLiberar),
+    h(
+      'p',
+      { className: 'hint', style: { marginTop: '14px' } },
+      'Não pede cartão. O plano grátis é para sempre: 8 músicas na biblioteca e 1 show montado.'
+    ),
+    h('div', { style: { borderTop: '1px solid var(--border)', margin: '28px 0 14px' } }),
+    h('p', { className: 'hint', style: { marginBottom: '10px' } }, 'Já usava o app e está num aparelho novo?'),
+    h('button', { className: 'btn block', onClick: () => arquivo.click() }, 'Restaurar um backup'),
+    arquivo
+  )
+  root.append(content)
+
+  // a conta pode chegar por dois caminhos: os 6 números digitados aqui, ou o
+  // link do e-mail aberto com o app já na tela. Os dois passam por onContaChange
+  const solta = onContaChange(() => {
+    if (!root.isConnected) {
+      solta()
+      return
+    }
+    if (contaAtual() !== null) aoLiberar()
+  })
+  return root
 }
 
 export function moreScreen(): HTMLElement {

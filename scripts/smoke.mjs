@@ -75,8 +75,43 @@ page.on('console', (m) => {
 })
 
 try {
+  // ---------- a porta: aparelho novo cria conta antes de ver o app ----------
+  // Decisão comercial do Eder: sem conta, sem app. Quem chega aqui já leu a
+  // página de venda; esta tela só pede o e-mail e sai da frente.
+  await page.route('**/auth/v1/**', (route) => {
+    const url = route.request().url()
+    if (url.includes('/otp')) return route.fulfill({ json: {} })
+    if (url.includes('/verify')) {
+      return route.fulfill({
+        json: {
+          access_token: 'crachá-da-porta',
+          refresh_token: 'renova-da-porta',
+          expires_in: 3600,
+          user: { id: 'user-eder', email: 'eder@gmail.com' },
+        },
+      })
+    }
+    if (url.includes('/logout')) return route.fulfill({ status: 204, body: '' })
+    return route.fulfill({ json: { id: 'user-eder', email: 'eder@gmail.com' } })
+  })
+
   await page.goto(APP)
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 12000 })
+  check('PORTA: aparelho novo cai no cadastro, não na tela de Shows', (await page.locator('.tabbar').count()) === 0)
+  check('PORTA: a tela diz o que fazer', /Crie sua conta/.test(await page.textContent('.content')))
+  check('PORTA: promete de graça e sem cartão', /Não pede cartão/.test(await page.textContent('.content')))
+  check('PORTA: nenhum campo de senha existe na porta', (await page.locator('input[type="password"]').count()) === 0)
+  check('PORTA: quem já usa o app tem saída pelo backup', (await page.locator('button:has-text("Restaurar um backup")').count()) === 1)
+
+  await page.fill('input[placeholder="seu@email.com"]', 'eder@gmail.com')
+  await page.click('button:has-text("Entrar com meu e-mail")')
+  await page.waitForSelector('.sheet input[placeholder="000000"]', { timeout: 8000 })
+  await page.fill('.sheet input[placeholder="000000"]', '123456')
+  await page.waitForSelector('.sheet h2:has-text("Pronto")', { timeout: 8000 })
+  await page.click('.sheet button:has-text("Ok")')
   await page.waitForSelector('.tabbar', { timeout: 8000 })
+  check('PORTA: entrando com o e-mail, a porta abre na hora', (await page.locator('.tabbar').count()) === 1)
+
   // a barra de abas pode aparecer um quadro antes do texto; espera o botão
   await page.waitForSelector('.tabbar button:has-text("Shows")', { timeout: 8000 })
   check('app abre na tela de Shows', (await page.locator('.tabbar button:has-text("Shows")').count()) === 1)
@@ -137,6 +172,32 @@ try {
   await page.waitForSelector('.tabbar')
   await page.waitForSelector('.card', { timeout: 5000 })
   check('música persistida após recarregar', await page.isVisible('.card .title:has-text("Minha Cancao")'))
+
+  // ---------- a ressalva da porta: repertório no aparelho vale mais que cadastro ----------
+  // Com uma música gravada aqui, sair da conta NÃO pode devolver a barreira.
+  // O app é usado no palco, muitas vezes em modo avião: trancar um músico fora
+  // do próprio repertório seria o pior defeito possível neste produto.
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  await page.click('button:has-text("Sair da conta")')
+  await page.waitForSelector('.confirmbox', { timeout: 5000 })
+  await page.click('.confirmbox .btn.danger')
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+  check('PORTA: com música no aparelho, sair da conta não devolve a barreira', (await page.locator('.tabbar').count()) === 1)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  check('PORTA: e reabrindo o app deslogado também não', (await page.locator('.card, .empty, .tabbar').count()) > 0)
+  // apaga o dono adotado na porta: senão o login mais adiante cai na pergunta de troca
+  await page.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    await new Promise((res) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').delete('dono'); t.oncomplete = res })
+    db.close()
+  })
+  await page.unroute('**/auth/v1/**')
+  await page.goto(APP)
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  await page.click('.tabbar button:has-text("Biblioteca")')
+  await page.waitForSelector('.card', { timeout: 8000 })
 
   // show com setlist
   await page.click('.tabbar button:has-text("Shows")')
@@ -719,9 +780,10 @@ try {
   pageL.on('pageerror', (e) => errors.push('L: ' + String(e)))
   await pageL.route('**/functions/v1/video*', (route) => route.fulfill({ json: { hits: [{ id: 'dQw4w9WgXcQ', title: 'Clipe', channel: 'Banda', length: '3:56' }] } }))
   await pageL.goto(APP)
-  await pageL.waitForSelector('.tabbar', { timeout: 8000 })
+  // contexto novo: cai na porta. Espera só a tela existir (a base já foi criada
+  // pelo store.init) e semeia o repertório, que é o que dispensa o cadastro.
+  await pageL.waitForSelector('.content', { timeout: 8000 })
   await pageL.waitForTimeout(2000)
-  await pageL.waitForSelector('.tabbar', { timeout: 8000 })
   const LINHA_LONGA = 'Am                          G                         F                    E\nUma linha bem comprida de letra que ocupa a largura inteira da tela do iPad\n'
   await pageL.evaluate(async (corpo) => {
     const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
@@ -1325,8 +1387,8 @@ try {
   const destino = await pv.getAttribute('a.cta', 'href')
   check('VENDA: o botão aponta para o app (' + destino + ')', destino === 'app/#/more')
   await pv.click('a.cta')
-  await pv.waitForSelector('.tabbar', { timeout: 12000 })
-  check('VENDA: clicar no botão abre o app de verdade', /\/app\//.test(pv.url()))
+  await pv.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 12000 })
+  check('VENDA: clicar no botão abre o app, no cadastro grátis', /\/app\//.test(pv.url()))
 
   // 3) o service worker da raiz existe só para desmontar a instalação antiga:
   // registra, se desregistra sozinho e some. Sem isso o cache velho continuaria
@@ -1360,12 +1422,17 @@ try {
 
   // 5) quem já tem repertório neste aparelho não vê anúncio da própria casa
   await pv.goto(APP)
-  await pv.waitForSelector('.tabbar button:has-text("Biblioteca")', { timeout: 12000 })
-  await pv.click('.tabbar button:has-text("Biblioteca")')
-  await pv.click('button[aria-label="Adicionar música"]')
-  await pv.fill('textarea', 'Música: Teste da Mudanca\nArtista: Exemplo\n\n' + FIXTURE_LONGA)
-  await pv.click('button:has-text("Salvar música")')
-  await pv.waitForSelector('.readerbar', { timeout: 8000 })
+  await pv.waitForSelector('.content', { timeout: 12000 })
+  await pv.evaluate(async (corpo) => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const now = Date.now()
+    await new Promise((res) => {
+      const t = db.transaction('songs', 'readwrite')
+      t.objectStore('songs').put({ id: 'mud1', title: 'Teste da Mudanca', artist: 'Exemplo', tom: 'G', body: corpo, semitones: 0, scrollSeconds: 180, notes: '', createdAt: now, updatedAt: now })
+      t.oncomplete = res
+    })
+    db.close()
+  }, FIXTURE_LONGA)
   await pv.goto(RAIZ, { waitUntil: 'commit' }).catch(() => undefined)
   await pv.waitForURL(/\/app\//, { timeout: 10000 }).catch(() => undefined)
   check('MUDANÇA: quem já tem música no aparelho cai direto no app', /\/app\//.test(pv.url()))
