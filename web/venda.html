@@ -99,7 +99,7 @@ footer a{color:var(--accent);text-decoration:none}
   <div class="heroi">
     <h1>Suas cifras prontas <em>na hora do show</em>.</h1>
     <p class="sub">Sem papel amassado, sem print que apaga a tela, sem depender do wi-fi da casa.</p>
-    <a class="cta" href="/#/more">Começar grátis agora</a>
+    <a class="cta" href="app/#/more">Começar grátis agora</a>
     <span class="sob">Não pede cartão. Leva menos de um minuto.</span>
   </div>
 
@@ -203,7 +203,7 @@ no ritmo do seu ensaio</pre></div>
   <section style="text-align:center;border:0">
     <h2>Comece pelo próximo ensaio</h2>
     <p class="dim">Oito músicas de graça já dão um repertório de canto de bar.</p>
-    <a class="cta" href="/#/more">Começar grátis agora</a>
+    <a class="cta" href="app/#/more">Começar grátis agora</a>
   </section>
 
   <footer>
@@ -213,10 +213,25 @@ no ritmo do seu ensaio</pre></div>
 </div>
 
 <script>
-// Quem já usa o app não deveria ver anúncio da própria casa: se este navegador
-// tem repertório guardado, vai direto para o app. A checagem é rápida e falha
-// em silêncio; se der qualquer problema, a pessoa só vê a página normal.
+// Esta página é a porta da rua, e duas pessoas batem nela por engano.
+//
+// 1. QUEM CLICOU NO LINK DO E-MAIL. Os links de entrada já enviados apontam
+//    para o endereço antigo (a raiz), onde o app morava. O crachá vem pendurado
+//    no # e é de uso único: se ele cair aqui e ninguém o recolher, a pessoa
+//    perde a entrada e o segundo clique dá "link inválido". Então qualquer
+//    endereço com cara de crachá é encaminhado inteiro para o app, na hora,
+//    antes de desenhar qualquer coisa.
+//
+// 2. QUEM JÁ USA O APP. Não faz sentido mostrar o anúncio da própria casa a
+//    quem já tem repertório neste aparelho. A checagem é rápida e falha em
+//    silêncio: dando qualquer problema, a pessoa só vê a página normal e o
+//    botão continua ali.
 (function () {
+  var h = location.hash || ''
+  if (h.indexOf('access_token=') >= 0 || h.indexOf('error_code=') >= 0 || h.indexOf('error_description=') >= 0) {
+    location.replace('app/' + location.search + h)
+    return
+  }
   try {
     if (!('indexedDB' in window)) return
     var p = indexedDB.open('cifras')
@@ -224,6 +239,7 @@ no ritmo do seu ensaio</pre></div>
       // base nova: nunca usou o app aqui. Desfaz para não deixar lixo
       e.target.transaction.abort()
     }
+    p.onerror = function () { /* base abortada acima: página normal */ }
     p.onsuccess = function () {
       var db = p.result
       if (!db.objectStoreNames.contains('songs')) { db.close(); return }
@@ -231,7 +247,9 @@ no ritmo do seu ensaio</pre></div>
       q.onsuccess = function () {
         var tem = q.result > 0
         db.close()
-        if (tem) location.replace('/#/shows')
+        // leva junto o que a pessoa pediu: quem tinha #/library volta em
+        // #/library, e não numa tela qualquer
+        if (tem) location.replace('app/' + (h && h !== '#' ? h : '#/shows'))
       }
     }
   } catch (e) { /* página normal */ }

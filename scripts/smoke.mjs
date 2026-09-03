@@ -11,6 +11,8 @@ const { chromium } = await import('/home/claude/.npm-global/lib/node_modules/pla
 
 const DOCS = new URL('../docs', import.meta.url).pathname
 const PORT = 8123
+// desde 03/09/2026 a raiz é a página de venda e o app mora aqui
+const APP = `http://localhost:${PORT}/app/`
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.txt': 'text/plain' }
 
@@ -73,7 +75,7 @@ page.on('console', (m) => {
 })
 
 try {
-  await page.goto(`http://localhost:${PORT}/`)
+  await page.goto(APP)
   await page.waitForSelector('.tabbar', { timeout: 8000 })
   // a barra de abas pode aparecer um quadro antes do texto; espera o botão
   await page.waitForSelector('.tabbar button:has-text("Shows")', { timeout: 8000 })
@@ -376,7 +378,7 @@ try {
   await pageB.route('**/functions/v1/licenca*', (route) => route.fulfill({ json: { plano: 'pago', restamMs: 30 * 86400000, renova: true } }))
   pageB.on('pageerror', (e) => errors.push('B: ' + String(e)))
   await pageB.route('**/functions/v1/sync*', syncMock)
-  await pageB.goto(`http://localhost:${PORT}/`)
+  await pageB.goto(APP)
   await marcaComoPagante(pageB)
   await pageB.reload({ waitUntil: 'domcontentloaded' })
   await pageB.waitForSelector('.tabbar', { timeout: 8000 })
@@ -437,7 +439,7 @@ try {
   check('SYNC: sair do app manda na hora o que estava pendente (' + levou + 'ms)', cloud.row.updatedAt !== antesFlush && levou < 4000)
 
   // A fica parada na tela e recebe sozinha, sem ninguém tocar em nada (ronda)
-  await page.goto(`http://localhost:${PORT}/?ronda=1200#/library`)
+  await page.goto(APP + `?ronda=1200#/library`)
   await page.waitForSelector('.tabbar', { timeout: 8000 })
   await pageB.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
@@ -716,7 +718,7 @@ try {
   const pageL = await ctxL.newPage()
   pageL.on('pageerror', (e) => errors.push('L: ' + String(e)))
   await pageL.route('**/functions/v1/video*', (route) => route.fulfill({ json: { hits: [{ id: 'dQw4w9WgXcQ', title: 'Clipe', channel: 'Banda', length: '3:56' }] } }))
-  await pageL.goto(`http://localhost:${PORT}/`)
+  await pageL.goto(APP)
   await pageL.waitForSelector('.tabbar', { timeout: 8000 })
   await pageL.waitForTimeout(2000)
   await pageL.waitForSelector('.tabbar', { timeout: 8000 })
@@ -880,7 +882,7 @@ try {
   check('CONTA: sair não apaga as músicas do aparelho (' + musicasDepois.split('·')[0].trim() + ')', !musicasDepois.startsWith('0 música'))
 
   // ---------- o outro caminho de entrar: o link do e-mail ----------
-  const linkCom = (frag) => `http://localhost:${PORT}/?t=${Date.now()}#${frag}`
+  const linkCom = (frag) => APP + `?t=${Date.now()}#${frag}`
   // quase vencido de propósito: assim o evento 'online' dispara mesmo a renovação
   const CRACHA = 'access_token=crachá-do-link&refresh_token=renova-do-link&expires_in=60&type=magiclink'
 
@@ -1269,7 +1271,7 @@ try {
     const r = await fetch('versao.txt?x=' + Date.now(), { cache: 'no-store' })
     return r.ok ? (await r.text()).trim() : 'falhou'
   })
-  const marcaLocal = (await readFile(join(DOCS, 'versao.txt'), 'utf8')).trim()
+  const marcaLocal = (await readFile(join(DOCS, 'app/versao.txt'), 'utf8')).trim()
   check('VERSÃO: a marca publicada chega ao app (' + marca + ')', marca === marcaLocal)
   const carimbo = await page.evaluate(async () => {
     const t = await (await fetch('assets/app.js')).text()
@@ -1295,6 +1297,89 @@ try {
   check('OFFLINE: app abre em modo avião (service worker servindo tudo)', true)
   await page.click('button[aria-label="Sair"]').catch(() => undefined)
   await page.context().setOffline(false)
+
+
+  // ---------------------------------------------------------------------
+  // A MUDANÇA DE ENDEREÇO (03/09/2026)
+  // A raiz virou a página de venda e o app foi para /app/. Quem já tinha o
+  // app instalado no endereço velho não pode ficar preso na porta, e os links
+  // de entrada já enviados por e-mail apontam todos para a raiz.
+  // ---------------------------------------------------------------------
+  const RAIZ = `http://localhost:${PORT}/`
+
+  // 1) a marca da raiz é o que avisa o app instalado no endereço velho de que
+  // a casa mudou de lugar. Se ela não acompanhar a do app, o aparelho antigo
+  // nunca percebe a troca e fica servindo a casca velha para sempre.
+  const marcaRaiz = (await readFile(join(DOCS, 'versao.txt'), 'utf8')).trim()
+  const marcaApp = (await readFile(join(DOCS, 'app/versao.txt'), 'utf8')).trim()
+  check('MUDANÇA: a raiz publica a mesma versão do app (' + marcaRaiz + ')', marcaRaiz === marcaApp && marcaRaiz.length === 12)
+
+  const ctxV = await browser.newContext({ viewport: { width: 834, height: 1112 } })
+  const pv = await ctxV.newPage()
+
+  // 2) visitante novo: precisa ver o anúncio, não um app vazio dizendo
+  // "Nenhum show ainda" (era exatamente o que acontecia antes da mudança)
+  await pv.goto(RAIZ)
+  await pv.waitForSelector('h1', { timeout: 8000 })
+  check('VENDA: a raiz mostra o anúncio, não o app', /hora do show/.test(await pv.textContent('h1')) && (await pv.locator('.tabbar').count()) === 0)
+  const destino = await pv.getAttribute('a.cta', 'href')
+  check('VENDA: o botão aponta para o app (' + destino + ')', destino === 'app/#/more')
+  await pv.click('a.cta')
+  await pv.waitForSelector('.tabbar', { timeout: 12000 })
+  check('VENDA: clicar no botão abre o app de verdade', /\/app\//.test(pv.url()))
+
+  // 3) o service worker da raiz existe só para desmontar a instalação antiga:
+  // registra, se desregistra sozinho e some. Sem isso o cache velho continuaria
+  // servindo a casca do app no lugar do anúncio.
+  await pv.goto(RAIZ)
+  const sobrouWorker = await pv.evaluate(async () => {
+    // só os da RAIZ: o app já registrou o worker dele em /app/, e esse fica
+    const daRaiz = async () =>
+      (await navigator.serviceWorker.getRegistrations()).filter((r) => new URL(r.scope).pathname === '/')
+    await navigator.serviceWorker.register('./sw.js')
+    for (let i = 0; i < 60; i++) {
+      if ((await daRaiz()).length === 0) return 0
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    return (await daRaiz()).length
+  })
+  check('MUDANÇA: o worker da raiz se desregistra sozinho', sobrouWorker === 0)
+
+  // 4) o crachá do e-mail que cai na raiz não pode se perder: é de uso único,
+  // e um segundo clique já daria "link inválido"
+  const vistos = []
+  pv.on('framenavigated', (f) => vistos.push(f.url()))
+  // a busca (?t=) é o que força uma carga de verdade: só trocar o # não
+  // recarrega a página, e aí o encaminhamento nem chegaria a rodar
+  await pv.goto(RAIZ + '?t=' + Date.now() + '#access_token=abc&refresh_token=def&expires_in=3600', { waitUntil: 'commit' }).catch(() => undefined)
+  await pv.waitForURL(/\/app\//, { timeout: 10000 }).catch(() => undefined)
+  check(
+    'MUDANÇA: crachá do e-mail que cai na raiz é encaminhado inteiro para o app',
+    vistos.some((u) => u.includes('/app/') && u.includes('access_token=abc') && u.includes('refresh_token=def'))
+  )
+
+  // 5) quem já tem repertório neste aparelho não vê anúncio da própria casa
+  await pv.goto(APP)
+  await pv.waitForSelector('.tabbar button:has-text("Biblioteca")', { timeout: 12000 })
+  await pv.click('.tabbar button:has-text("Biblioteca")')
+  await pv.click('button[aria-label="Adicionar música"]')
+  await pv.fill('textarea', 'Música: Teste da Mudanca\nArtista: Exemplo\n\n' + FIXTURE_LONGA)
+  await pv.click('button:has-text("Salvar música")')
+  await pv.waitForSelector('.readerbar', { timeout: 8000 })
+  await pv.goto(RAIZ, { waitUntil: 'commit' }).catch(() => undefined)
+  await pv.waitForURL(/\/app\//, { timeout: 10000 }).catch(() => undefined)
+  check('MUDANÇA: quem já tem música no aparelho cai direto no app', /\/app\//.test(pv.url()))
+  await pv.waitForSelector('.tabbar', { timeout: 12000 })
+  check('MUDANÇA: e o repertório continua lá depois da troca de endereço', (await pv.evaluate(async () => {
+    const db = await new Promise((ok) => { const r = indexedDB.open('cifras'); r.onsuccess = () => ok(r.result) })
+    return await new Promise((ok) => { const q = db.transaction('songs').objectStore('songs').count(); q.onsuccess = () => ok(q.result) })
+  })) === 1)
+
+  // 6) o endereço antigo do anúncio continua respondendo
+  await pv.goto(`http://localhost:${PORT}/comecar.html`, { waitUntil: 'commit' }).catch(() => undefined)
+  await pv.waitForURL((u) => !/comecar/.test(u.toString()), { timeout: 8000 }).catch(() => undefined)
+  check('MUDANÇA: /comecar continua levando a algum lugar útil', !/comecar/.test(pv.url()))
+  await ctxV.close()
 
   check('nenhum erro de JavaScript no percurso', errors.length === 0)
   if (errors.length) console.log('  erros:', errors.slice(0, 5))

@@ -1,7 +1,7 @@
 Options -Indexes
 Header set Cache-Control "no-cache"
 
-# endereço bonito da página de venda: /comecar abre comecar.html
-# (o GitHub Pages ignora este arquivo; lá o endereço é /comecar.html)
+# a raiz é a página de venda; o app mora em /app/
+# o endereço antigo do anúncio manda para a raiz, que agora é o próprio anúncio
 RewriteEngine On
-RewriteRule ^comecar/?$ /comecar.html [L]
+RewriteRule ^comecar/?$ / [R=301,L]
