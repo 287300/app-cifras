@@ -1,2 +1,7 @@
 Options -Indexes
 Header set Cache-Control "no-cache"
+
+# endereço bonito da página de venda: /comecar abre comecar.html
+# (o GitHub Pages ignora este arquivo; lá o endereço é /comecar.html)
+RewriteEngine On
+RewriteRule ^comecar/?$ /comecar.html [L]

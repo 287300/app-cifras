@@ -40,7 +40,16 @@ for (const name of readdirSync(join(ROOT, 'web'))) {
 // sem listagem de pastas e sem cache de navegador (o offline fica por conta do service worker)
 writeFileSync(
   join(OUT, '.htaccess'),
-  'Options -Indexes\nHeader set Cache-Control "no-cache"\n'
+  [
+    'Options -Indexes',
+    'Header set Cache-Control "no-cache"',
+    '',
+    '# endereço bonito da página de venda: /comecar abre comecar.html',
+    '# (o GitHub Pages ignora este arquivo; lá o endereço é /comecar.html)',
+    'RewriteEngine On',
+    'RewriteRule ^comecar/?$ /comecar.html [L]',
+    '',
+  ].join('\n')
 )
 
 // 4) lista os arquivos finais e calcula a versão pelo conteúdo
