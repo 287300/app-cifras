@@ -255,7 +255,7 @@ footer a{color:var(--ambar);display:inline-block;padding:13px 2px;min-height:44p
 footer a:hover{text-decoration:underline}
 
 /* ---------- entrada em cena ---------- */
-.js .entra{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.7,.3,1),transform .7s cubic-bezier(.2,.7,.3,1)}
+.js .entra{opacity:0;transform:translateY(14px);transition:opacity .45s cubic-bezier(.2,.7,.3,1),transform .45s cubic-bezier(.2,.7,.3,1)}
 .js .entra.vista{opacity:1;transform:none}
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
@@ -285,13 +285,13 @@ footer a:hover{text-decoration:underline}
       <a class="cta" href="app/#/more">Começar grátis agora <span class="seta">→</span></a>
       <span class="sob">Não pede cartão. Leva menos de um minuto.</span>
     </div>
-    <figure class="tela tela-heroi entra">
+    <figure class="tela tela-heroi">
       <picture>
         <source media="(min-width:760px)" srcset="prints/palco.webp" width="2000" height="1400">
         <img src="prints/palco-cel.webp" width="860" height="1520" alt="O modo palco do Cifra Pronta: letra grande em fundo escuro, acordes destacados em laranja acima da sílaba certa, e a barra de baixo com o botão de próxima música." fetchpriority="high">
       </picture>
     </figure>
-    <p class="legenda entra">O modo palco: letra grande, acorde em cima da sílaba certa, rolagem descendo sozinha e a tela que não apaga.</p>
+    <p class="legenda">O modo palco: letra grande, acorde em cima da sílaba certa, rolagem descendo sozinha e a tela que não apaga.</p>
   </div>
 
   <div class="wrap">
@@ -545,7 +545,7 @@ footer a:hover{text-decoration:underline}
       l.target.classList.add('vista')
       obs.unobserve(l.target)
     })
-  }, { rootMargin: '0px 0px -12% 0px', threshold: .06 })
+  }, { rootMargin: '0px 0px 120px 0px', threshold: 0 })
   alvos.forEach(function (a) { obs.observe(a) })
 })()
 </script>

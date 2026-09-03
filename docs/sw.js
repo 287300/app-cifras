@@ -1,4 +1,4 @@
-// Gerado por scripts/build.ts — desmonta a instalação antiga da raiz (versão 9e894b5ce844)
+// Gerado por scripts/build.ts — desmonta a instalação antiga da raiz (versão 7fdcd7a717bb)
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => {
   event.waitUntil(
