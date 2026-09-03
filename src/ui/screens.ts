@@ -1718,7 +1718,11 @@ function syncCard(): HTMLElement {
  */
 export function portaScreen(aoLiberar: () => void): HTMLElement {
   const root = h('div', { className: 'screen' })
-  const content = h('div', { className: 'content', style: { maxWidth: '460px', margin: '0 auto', paddingTop: '10vh' } })
+  // .content é filha de um flex em coluna: dar margem automática NELA faz a
+  // largura virar a da maior palavra, e no iPad deitado a tela saía com uma
+  // palavra por linha. A coluna estreita vive numa div por dentro.
+  const content = h('div', { className: 'content' })
+  const coluna = h('div', { style: { maxWidth: '460px', margin: '0 auto', paddingTop: '8vh' } })
 
   const arquivo = h('input', { type: 'file', accept: 'application/json,.json', style: { display: 'none' } }) as HTMLInputElement
   arquivo.addEventListener('change', async () => {
@@ -1734,7 +1738,7 @@ export function portaScreen(aoLiberar: () => void): HTMLElement {
     arquivo.value = ''
   })
 
-  content.append(
+  coluna.append(
     h('div', { style: { fontSize: '28px', fontWeight: '700', marginBottom: '6px' } }, '🎼 Cifra Pronta'),
     h('h1', { style: { fontSize: '24px', lineHeight: '1.25', margin: '14px 0 10px' } }, 'Crie sua conta para começar'),
     h(
@@ -1753,6 +1757,7 @@ export function portaScreen(aoLiberar: () => void): HTMLElement {
     h('button', { className: 'btn block', onClick: () => arquivo.click() }, 'Restaurar um backup'),
     arquivo
   )
+  content.append(coluna)
   root.append(content)
 
   // a conta pode chegar por dois caminhos: os 6 números digitados aqui, ou o

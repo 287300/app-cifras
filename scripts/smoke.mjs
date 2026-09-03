@@ -783,6 +783,12 @@ try {
   // contexto novo: cai na porta. Espera só a tela existir (a base já foi criada
   // pelo store.init) e semeia o repertório, que é o que dispensa o cadastro.
   await pageL.waitForSelector('.content', { timeout: 8000 })
+  // De passagem, a porta em tela larga. A primeira versão dava margem automática
+  // na própria .content, que é filha de um flex em coluna: a largura virava a da
+  // maior palavra e o iPad deitado mostrava uma palavra por linha.
+  await pageL.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+  const larguraDaPorta = await pageL.evaluate(() => Math.round(document.querySelector('.btn.primary').getBoundingClientRect().width))
+  check('PORTA: em tela larga o formulário não espreme (' + larguraDaPorta + 'px)', larguraDaPorta > 300)
   await pageL.waitForTimeout(2000)
   const LINHA_LONGA = 'Am                          G                         F                    E\nUma linha bem comprida de letra que ocupa a largura inteira da tela do iPad\n'
   await pageL.evaluate(async (corpo) => {
