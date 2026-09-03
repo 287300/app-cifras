@@ -180,7 +180,7 @@ export async function pedirCodigo(emailBruto: string): Promise<string> {
 export async function entrarComCodigo(emailBruto: string, codigoBruto: string): Promise<Conta> {
   const email = normalizaEmail(emailBruto)
   const codigo = normalizaCodigo(codigoBruto)
-  if (!codigoCompleto(codigo)) throw new Error('O código tem 6 números.')
+  if (!codigoCompleto(codigo)) throw new Error('Digite os números que chegaram no e-mail, são pelo menos 6.')
   const data = await post('/verify', { type: 'email', email, token: codigo }, 'codigo')
   const nova = daResposta(data)
   await guarda(nova)

@@ -6,7 +6,7 @@ import { ajustaDonoPelaTela, type AvisoDeTroca, type RespostaDaTroca } from '../
 import { CONTATO, LINK, PRECO, VANTAGENS } from '../compra.ts'
 import { quantoFalta, recadoAoSalvar, travadosNoPlano } from '../engine/limites.ts'
 import { avisoDaLicenca, jaFoiPagante, limitesValem, onLicencaChange, planoAtual } from '../licenca.ts'
-import { codigoMorreu, normalizaCodigo, sugestaoDeEmail } from '../engine/conta.ts'
+import { codigoCompleto, codigoMorreu, normalizaCodigo, sugestaoDeEmail } from '../engine/conta.ts'
 import { motivoParaAssinar, textoDoBloqueio } from '../engine/sincronizacao.ts'
 import { parseCifra } from '../engine/parse.ts'
 import { extractImportHeader } from '../engine/importHeader.ts'
@@ -1210,7 +1210,7 @@ function claimSheet(deviceName: string, onDone: () => void): void {
 
 // ---------- conta (entrar pelo e-mail, sem senha) ----------
 
-/** Segundo passo de entrar: os 6 números que chegaram por e-mail. */
+/** Segundo passo de entrar: o código que chegou por e-mail. */
 function codigoSheet(email: string, onDone: () => void): void {
   const input = h('input', {
     type: 'text',
@@ -1222,7 +1222,7 @@ function codigoSheet(email: string, onDone: () => void): void {
   const status = h(
     'p',
     { className: 'hint', style: { marginTop: '10px' } },
-    `Mandamos um e-mail para ${email} com 6 números. Digite eles aqui.`
+    `Mandamos um e-mail para ${email} com um código. Digite ele aqui.`
   )
   const btn = h('button', { className: 'btn primary block', style: { marginTop: '12px' } }, 'Entrar') as HTMLButtonElement
   const reenviar = h('button', { className: 'btn block', style: { marginTop: '10px' } }, 'Mandar outro e-mail') as HTMLButtonElement
@@ -1241,7 +1241,7 @@ function codigoSheet(email: string, onDone: () => void): void {
     // botão a pessoa merece ver o motivo de novo em vez de um botão morto
     if (enviando) return
     if (codigo === jaRecusado) {
-      status.textContent = 'Esse código o servidor já recusou. Confira os 6 números do e-mail mais novo, ou peça outro aqui embaixo.'
+      status.textContent = 'Esse código o servidor já recusou. Confira o código do e-mail mais novo, ou peça outro aqui embaixo.'
       return
     }
     enviando = true
@@ -1284,10 +1284,18 @@ function codigoSheet(email: string, onDone: () => void): void {
     }
   }
 
-  // o teclado numérico do iPad manda de tudo: aceita como vier e entra sozinho
+  // O teclado numérico do iPad manda de tudo: aceita como vier e entra sozinho.
+  //
+  // Entrar no SEXTO número era um chute: o servidor pode mandar de 6 a 10, e
+  // com um código de 8 o app tentava com os 6 primeiros, errava, e queimava
+  // esses 6 no aviso de "já recusado" — tudo isso enquanto a pessoa ainda
+  // estava digitando. Em vez de adivinhar o tamanho, espera meio segundo de
+  // silêncio: funciona com qualquer tamanho e continua instantâneo na prática.
+  let sozinho: ReturnType<typeof setTimeout> | undefined
   input.addEventListener('input', () => {
     input.value = normalizaCodigo(input.value)
-    if (input.value.length === 6) void entrar()
+    clearTimeout(sozinho)
+    if (codigoCompleto(input.value)) sozinho = setTimeout(() => void entrar(), 500)
   })
   btn.addEventListener('click', () => void entrar())
   reenviar.addEventListener('click', async () => {
@@ -1332,7 +1340,7 @@ function codigoSheet(email: string, onDone: () => void): void {
  *
  * Vive separado porque aqui mora sutileza que não pode divergir entre as duas
  * telas: o palpite de erro de dedo no e-mail (com a saída "não, é esse mesmo"),
- * o recado que sobrou de um link de e-mail vencido e a folha dos 6 números.
+ * o recado que sobrou de um link de e-mail vencido e a folha do código.
  */
 function formularioDeEntrada(aoEntrar: () => void): HTMLElement[] {
   const emailInput = h('input', {

@@ -45,7 +45,7 @@ describe('e-mail', () => {
   })
 })
 
-describe('código de 6 números', () => {
+describe('código do e-mail', () => {
   test('aceita como a pessoa digita: com espaço, traço ou colado', () => {
     expect(normalizaCodigo('123 456')).toBe('123456')
     expect(normalizaCodigo('123-456')).toBe('123456')
@@ -53,13 +53,22 @@ describe('código de 6 números', () => {
   })
 
   test('joga fora o que não é número e não passa de 6', () => {
-    expect(normalizaCodigo('12a34b56789')).toBe('123456')
+    expect(normalizaCodigo('12a34b56789')).toBe('123456789')
     expect(normalizaCodigo('abc')).toBe('')
   })
 
-  test('só está completo com os 6 números', () => {
+  // Quem decide o tamanho é o servidor de contas: o mesmo projeto já mandou 6 e
+  // já mandou 8. Cortar no sexto fazia o app enviar meio código e acusar a
+  // pessoa de ter digitado errado, com os números certos na tela.
+  test('aceita de 6 a 10 números, porque o servidor é quem escolhe', () => {
     expect(codigoCompleto('12345')).toBe(false)
     expect(codigoCompleto('123456')).toBe(true)
+    expect(codigoCompleto('12345678')).toBe(true)
+    expect(codigoCompleto('1234567890')).toBe(true)
+    expect(normalizaCodigo('12345678')).toBe('12345678')
+    expect(normalizaCodigo('12 34 56 78')).toBe('12345678')
+    // acima de 10 não existe: corta em vez de mandar lixo para o servidor
+    expect(normalizaCodigo('123456789012')).toBe('1234567890')
   })
 })
 

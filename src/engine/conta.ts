@@ -115,13 +115,28 @@ function distancia(a: string, b: string): number {
   return anterior[b.length]!
 }
 
+/**
+ * QUANTOS NÚMEROS TEM O CÓDIGO DO E-MAIL.
+ *
+ * Quem decide é o servidor de contas, não o app: o mesmo projeto já mandou 6 e
+ * já mandou 8, e a régua vai de 6 a 10. O app cortava no sexto número e mandava
+ * um código pela metade, então a pessoa via "código errado" com os números
+ * CERTOS na tela, sem nenhuma saída. Não dá para consertar isso adivinhando um
+ * tamanho: o app tem que aceitar a faixa inteira e deixar o servidor julgar.
+ *
+ * O código do pareamento entre aparelhos é outra história: aquele é gerado aqui
+ * dentro, tem 6 sempre, e não passa por estas funções.
+ */
+const MINIMO = 6
+const MAXIMO = 10
+
 /** Aceita o código como a pessoa digitar: com espaço, traço ou colado. */
 export function normalizaCodigo(raw: string): string {
-  return raw.replace(/\D/g, '').slice(0, 6)
+  return raw.replace(/\D/g, '').slice(0, MAXIMO)
 }
 
 export function codigoCompleto(codigo: string): boolean {
-  return normalizaCodigo(codigo).length === 6
+  return normalizaCodigo(codigo).length >= MINIMO
 }
 
 /** O crachá ainda serve para falar com o servidor agora? */

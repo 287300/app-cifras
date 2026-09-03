@@ -835,6 +835,7 @@ try {
 
   // ---------- conta: entrar pelo e-mail, sem senha (servidor de auth simulado) ----------
   const CODIGO_BOM = '424242'
+  let ultimoToken = '' // o que o app REALMENTE mandou para o servidor
   let emailPedido = ''
   let emailsMandados = 0
   let userOk = true
@@ -856,6 +857,7 @@ try {
       return route.fulfill({ json: {} })
     }
     if (url.includes('/verify')) {
+      ultimoToken = body.token || ''
       if (body.token === CODIGO_BOM) return route.fulfill({ json: sessaoFalsa(body.email) })
       return route.fulfill({ status: 403, json: { error_code: 'otp_expired', msg: 'Token has expired or is invalid' } })
     }
@@ -893,9 +895,20 @@ try {
   // código errado: recado em português, sem erro técnico e sem deslogar nada
   ruidoEsperado = /403 \(Forbidden\)/
   await page.fill('.sheet input[placeholder="000000"]', '111111')
-  await page.waitForTimeout(500)
+  await page.waitForTimeout(1300) // a entrada sozinha espera 500ms de silêncio antes de tentar
   const recado = await page.textContent('.sheet .hint')
   check('CONTA: código errado dá recado em português (' + recado.slice(0, 28) + '…)', /venceu|Código errado/.test(recado) && !/token|invalid/i.test(recado))
+
+  // ---------- o código de 8 números (defeito relatado pelo Eder em 03/09) ----------
+  // O servidor de contas manda de 6 a 10 números, e o projeto estava em 8. O app
+  // cortava no SEXTO e mandava meio código: a pessoa via "código errado" com os
+  // números certos na tela, e não havia saída nenhuma. Aqui se prova que o app
+  // manda o código inteiro, do tamanho que ele vier.
+  ultimoToken = ''
+  await page.fill('.sheet input[placeholder="000000"]', '87654321')
+  check('CÓDIGO: o campo não corta o código de 8 números', (await page.inputValue('.sheet input[placeholder="000000"]')) === '87654321')
+  await page.waitForTimeout(1300)
+  check('CÓDIGO: e o app manda os 8 para o servidor, não os 6 primeiros (' + ultimoToken + ')', ultimoToken === '87654321')
 
   // ---------- o beco sem saída do wi-fi ruim (achado da revisão de 03/09) ----------
   // Antes: qualquer falha marcava o código como queimado, inclusive queda de
@@ -909,7 +922,7 @@ try {
     return route.fallback()
   })
   await page.fill('.sheet input[placeholder="000000"]', CODIGO_BOM)
-  await page.waitForTimeout(900)
+  await page.waitForTimeout(1500)
   const semRede = await page.textContent('.sheet .hint')
   check('CONTA: queda de rede fala de internet, não de código errado', /internet/i.test(semRede))
 
