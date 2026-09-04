@@ -8,8 +8,8 @@ const bom = {
   evento: 'compra',
   produto: 'cifra-pronta',
   email: 'Musico@Exemplo.com',
-  externoId: 'cob_01H',
-  ocorridoEm: '2026-09-04T21:00:00.000Z',
+  externo_id: 'cob_01H',
+  ocorrido_em: '2026-09-04T21:00:00.000Z',
 }
 
 function ok(corpo: unknown): AvisoDePagamento {
@@ -59,14 +59,14 @@ describe('leitura do aviso da plataforma', () => {
     expect(recusa({ ...bom, email: 'a@' + 'b'.repeat(400) })).toBe('e-mail ausente ou inválido')
   })
 
-  test('sem externoId não dá para barrar repetição', () => {
-    expect(recusa({ ...bom, externoId: '' })).toBe('externoId ausente ou grande demais')
-    expect(recusa({ ...bom, externoId: 'x'.repeat(200) })).toBe('externoId ausente ou grande demais')
+  test('sem externo_id não dá para barrar repetição', () => {
+    expect(recusa({ ...bom, externo_id: '' })).toBe('externo_id ausente ou grande demais')
+    expect(recusa({ ...bom, externo_id: 'x'.repeat(200) })).toBe('externo_id ausente ou grande demais')
   })
 
   test('data fora do formato é recusada', () => {
-    expect(recusa({ ...bom, ocorridoEm: 'ontem' })).toBe('ocorridoEm ausente ou fora do formato')
-    expect(recusa({ ...bom, ocorridoEm: 1757012345 })).toBe('ocorridoEm ausente ou fora do formato')
+    expect(recusa({ ...bom, ocorrido_em: 'ontem' })).toBe('ocorrido_em ausente ou fora do formato')
+    expect(recusa({ ...bom, ocorrido_em: 1757012345 })).toBe('ocorrido_em ausente ou fora do formato')
   })
 
   test('corpo que não é objeto não derruba a função', () => {

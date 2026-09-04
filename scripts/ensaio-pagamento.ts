@@ -156,8 +156,8 @@ const aviso = (extra: Record<string, unknown> = {}) => ({
   evento: 'compra',
   produto: 'cifra-pronta',
   email: EMAIL,
-  externoId: 'cob_ensaio_1',
-  ocorridoEm: new Date().toISOString(),
+  externo_id: 'cob_ensaio_1',
+  ocorrido_em: new Date().toISOString(),
   ...extra,
 })
 
@@ -242,12 +242,12 @@ console.log('\n== a compra que vale ==')
 
 console.log('\n== o caminho triste ==')
 {
-  const cancelou = await mandaAviso(aviso({ evento: 'cancelamento', externoId: 'cob_ensaio_1' }))
+  const cancelou = await mandaAviso(aviso({ evento: 'cancelamento', externo_id: 'cob_ensaio_1' }))
   confere('cancelamento aceito', cancelou.status === 200, 'veio ' + cancelou.status)
   confere('cancelou mas continua pago até o fim', assinaturas.get(EMAIL)?.plano === 'pago')
   confere('e marcado para não renovar', assinaturas.get(EMAIL)?.renova === false)
 
-  const reembolsou = await mandaAviso(aviso({ evento: 'reembolso', externoId: 'cob_ensaio_1' }))
+  const reembolsou = await mandaAviso(aviso({ evento: 'reembolso', externo_id: 'cob_ensaio_1' }))
   confere('reembolso aceito', reembolsou.status === 200, 'veio ' + reembolsou.status)
   confere('reembolso derruba o pago na hora', assinaturas.get(EMAIL)?.plano === 'gratis')
   confere('e zera o prazo', assinaturas.get(EMAIL)?.valida_ate === null)

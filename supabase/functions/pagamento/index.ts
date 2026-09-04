@@ -190,11 +190,13 @@ export function leAviso(corpo: unknown, produtoEsperado: string): { aviso: Aviso
   // servidor de contas na hora de entrar. Aqui só barra o que é claramente lixo
   if (!email || !email.includes('@') || email.length > 320) return { erro: 'e-mail ausente ou inválido' }
 
-  const externoId = typeof c.externoId === 'string' ? c.externoId.trim() : ''
-  if (!externoId || externoId.length > 120) return { erro: 'externoId ausente ou grande demais' }
+  // o fio fala snake_case dos dois lados do contrato; daqui para dentro é
+  // camelCase, e esta função é justamente a fronteira onde um vira o outro
+  const externoId = typeof c.externo_id === 'string' ? c.externo_id.trim() : ''
+  if (!externoId || externoId.length > 120) return { erro: 'externo_id ausente ou grande demais' }
 
-  const ocorridoEm = typeof c.ocorridoEm === 'string' ? Date.parse(c.ocorridoEm) : NaN
-  if (!Number.isFinite(ocorridoEm)) return { erro: 'ocorridoEm ausente ou fora do formato' }
+  const ocorridoEm = typeof c.ocorrido_em === 'string' ? Date.parse(c.ocorrido_em) : NaN
+  if (!Number.isFinite(ocorridoEm)) return { erro: 'ocorrido_em ausente ou fora do formato' }
 
   return { aviso: { evento: evento as EventoPagamento, produto, email, externoId, ocorridoEm } }
 }

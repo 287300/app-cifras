@@ -69,8 +69,8 @@ async function avisa(cobranca: Cobranca, evento: string): Promise<string> {
     evento,
     produto: cobranca.produto,
     email: cobranca.email,
-    externoId: cobranca.id,
-    ocorridoEm: new Date().toISOString(),
+    externo_id: cobranca.id,
+    ocorrido_em: new Date().toISOString(),
   })
   const carimbo = String(Math.floor(Date.now() / 1000))
   const assinatura = createHmac('sha256', SEGREDO).update(carimbo + '.' + corpo).digest('hex')
