@@ -6,6 +6,22 @@
 //
 // Guardas: nada de varredura ou fila; uma página por chamada, tamanho limitado,
 // somente http(s) público, e origem restrita ao app.
+//
+// TODA CHAMADA EXIGE O CRACHÁ DE UMA PESSOA (revisão de 04/09/2026). Três
+// coisas que valem explicação:
+//
+// 1. A função exige um JWT válido para ser chamada, mas a chave pública do app
+//    também é um JWT válido, e ela mora dentro do app.js, que é um arquivo
+//    aberto na internet. Sem conferir QUEM está pedindo, isto aqui era um
+//    proxy web anônimo rodando na conta e na fatura do Eder.
+//
+// 2. O CORS não é portão. Ele só existe quando o navegador manda o cabeçalho
+//    Origin; um cliente de linha de comando não manda nenhum. Agora a falta de
+//    Origin conhecida também é recusa, e o crachá é o portão de verdade.
+//
+// 3. Redirecionamento é seguido À MÃO, um salto por vez, revalidando o endereço
+//    a cada salto. Com 'follow' automático, a validação do endereço inicial não
+//    valia nada: bastava um host que responde 302 para um endereço interno.
 
 const ALLOWED_ORIGINS = new Set([
   'https://cifrapronta.com.br',
@@ -37,6 +53,23 @@ function json(data: unknown, status: number, origin: string): Response {
   })
 }
 
+// ---------- quem está pedindo ----------
+
+const BASE = Deno.env.get('SUPABASE_URL') ?? ''
+const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+
+/** Quem é o dono deste crachá, segundo o servidor de contas. Null se não vale. */
+async function quemE(token: string): Promise<string | null> {
+  if (!token) return null
+  const res = await fetch(BASE + '/auth/v1/user', {
+    headers: { apikey: SERVICE, Authorization: 'Bearer ' + token },
+  })
+  if (!res.ok) return null
+  const u = (await res.json()) as { email?: string }
+  const email = (u.email ?? '').trim().toLowerCase()
+  return email || null
+}
+
 // ---------- utilidades de texto ----------
 
 function decodeEntities(s: string): string {
@@ -61,6 +94,35 @@ function stripTags(html: string): string {
   )
 }
 
+/**
+ * Lê a resposta até um teto de bytes e para.
+ *
+ * `res.text()` lê o que vier: uma resposta gigante de um motor de busca comeria
+ * a memória da função. O teto vale para todas as leituras, não só para a página
+ * de cifra.
+ */
+async function textoLimitado(res: Response, max: number): Promise<string> {
+  const reader = res.body?.getReader()
+  if (!reader) return ''
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (total < max) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    total += value.byteLength
+  }
+  void reader.cancel().catch(() => undefined)
+  const buf = new Uint8Array(total)
+  let off = 0
+  for (const c of chunks) {
+    buf.set(c.subarray(0, Math.min(c.byteLength, total - off)), off)
+    off += c.byteLength
+    if (off >= total) break
+  }
+  return new TextDecoder('utf-8').decode(buf)
+}
+
 function hostOf(u: string): string {
   try {
     return new URL(u).hostname.replace(/^www\./, '')
@@ -79,10 +141,16 @@ function isPublicHttpUrl(raw: string): boolean {
     return false
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+  // porta esquisita é sinal de serviço interno, não de página de cifra
+  if (u.port !== '' && u.port !== '80' && u.port !== '443') return false
   const h = u.hostname.toLowerCase()
-  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return false
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) return false // IPs diretos: fora
-  if (h.includes(':')) return false
+  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal') || h.endsWith('.localhost')) return false
+  // nome sem ponto é máquina da rede interna ("kong", "db", "metadata")
+  if (!h.includes('.')) return false
+  // IPv6 entre colchetes, e IPv4 em qualquer grafia: o padrão de URL já
+  // normaliza decimal, octal e hexadecimal para a forma com pontos
+  if (h.includes(':') || h.startsWith('[')) return false
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) return false
   return true
 }
 
@@ -120,7 +188,7 @@ async function searchCifraClubSuggest(q: string): Promise<Hit[]> {
     headers: { 'User-Agent': UA },
   })
   if (!res.ok) return []
-  const raw = await res.text()
+  const raw = await textoLimitado(res, MAX_BUSCA)
   const jsonStart = raw.indexOf('(')
   const body = jsonStart >= 0 && raw.trim().endsWith(')') ? raw.slice(jsonStart + 1, raw.lastIndexOf(')')) : raw
   let data: unknown
@@ -154,7 +222,7 @@ async function searchDuckDuckGo(q: string): Promise<Hit[]> {
     headers: { 'User-Agent': UA, 'Accept-Language': 'pt-BR,pt;q=0.9' },
   })
   if (!res.ok) return []
-  const html = await res.text()
+  const html = await textoLimitado(res, MAX_BUSCA)
   const hits: Hit[] = []
   const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
   let m: RegExpExecArray | null
@@ -173,7 +241,7 @@ async function searchBing(q: string): Promise<Hit[]> {
     headers: { 'User-Agent': UA, 'Accept-Language': 'pt-BR,pt;q=0.9' },
   })
   if (!res.ok) return []
-  const html = await res.text()
+  const html = await textoLimitado(res, MAX_BUSCA)
   const hits: Hit[] = []
   const re = /<li class="b_algo"[\s\S]*?<a[^>]+href="(http[^"]+)"[^>]*>([\s\S]*?)<\/a>/g
   let m: RegExpExecArray | null
@@ -188,16 +256,34 @@ async function searchBing(q: string): Promise<Hit[]> {
 // ---------- leitura de uma página de cifra ----------
 
 const MAX_BYTES = 600_000
+/** Teto para a resposta de um motor de busca. */
+const MAX_BUSCA = 400_000
+const MAX_SALTOS = 3
 
 async function fetchPage(url: string): Promise<{ finalUrl: string; html: string }> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 12_000)
   try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': UA, 'Accept-Language': 'pt-BR,pt;q=0.9', Accept: 'text/html,*/*;q=0.5' },
-      signal: ctrl.signal,
-      redirect: 'follow',
-    })
+    // Um salto por vez, conferindo o endereço a cada um. Seguir redirecionamento
+    // automaticamente anularia a conferência: o primeiro endereço passa e o
+    // segundo, que é o que de fato será lido, ninguém olha.
+    let alvo = url
+    let res: Response | null = null
+    for (let salto = 0; salto <= MAX_SALTOS; salto++) {
+      if (!isPublicHttpUrl(alvo)) throw new Error('endereço inválido')
+      res = await fetch(alvo, {
+        headers: { 'User-Agent': UA, 'Accept-Language': 'pt-BR,pt;q=0.9', Accept: 'text/html,*/*;q=0.5' },
+        signal: ctrl.signal,
+        redirect: 'manual',
+      })
+      if (res.status < 300 || res.status > 399) break
+      const destino = res.headers.get('location')
+      void res.body?.cancel().catch(() => undefined)
+      if (!destino) throw new Error('página respondeu ' + res.status)
+      alvo = new URL(destino, alvo).toString()
+      res = null
+    }
+    if (!res) throw new Error('a página encaminha demais')
     if (!res.ok) throw new Error('página respondeu ' + res.status)
     const ct = res.headers.get('content-type') ?? ''
     if (!ct.includes('text/html') && !ct.includes('text/plain')) throw new Error('não é uma página de texto')
@@ -219,7 +305,7 @@ async function fetchPage(url: string): Promise<{ finalUrl: string; html: string 
       off += c.byteLength
       if (off >= total) break
     }
-    return { finalUrl: res.url || url, html: new TextDecoder('utf-8').decode(buf) }
+    return { finalUrl: alvo, html: new TextDecoder('utf-8').decode(buf) }
   } finally {
     clearTimeout(timer)
   }
@@ -269,8 +355,20 @@ function extractCifra(html: string, finalUrl: string) {
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin') ?? ''
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(origin) })
-  if (origin && !ALLOWED_ORIGINS.has(origin)) return json({ error: 'origem não autorizada' }, 403, origin)
+  // sem Origin conhecida também é recusa: quem chama de fora do navegador não
+  // manda nenhuma, e era por aí que passava o proxy anônimo
+  if (!ALLOWED_ORIGINS.has(origin)) return json({ error: 'origem não autorizada' }, 403, origin)
   if (req.method !== 'GET') return json({ error: 'somente GET' }, 405, origin)
+
+  // Portaria: o crachá da PESSOA, não a chave pública do app
+  const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
+  let quem: string | null
+  try {
+    quem = await quemE(token)
+  } catch {
+    return json({ error: 'não deu para conferir sua conta agora' }, 502, origin)
+  }
+  if (!quem) return json({ error: 'entre na sua conta primeiro' }, 401, origin)
 
   const url = new URL(req.url)
   const op = url.searchParams.get('op') ?? ''

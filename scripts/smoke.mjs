@@ -74,6 +74,39 @@ page.on('console', (m) => {
   errors.push(t)
 })
 
+// A busca de cifra e a de vídeo vão com o CRACHÁ da pessoa (revisão de
+// 04/09/2026), não com a chave pública do app. Vários blocos abaixo exercitam
+// essas buscas e precisam de uma conta gravada no aparelho; outros precisam
+// justamente do contrário. Estes dois ajudantes trocam de estado sem passar
+// pela tela, que é o que os blocos de login testam por conta própria.
+const seguraConta = async (alvo) => {
+  await alvo.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    await new Promise((res) => {
+      const t = db.transaction('kv', 'readwrite')
+      t.objectStore('kv').put({ key: 'conta', value: { email: 'eder@gmail.com', userId: 'user-eder', accessToken: 'crachá-da-porta', refreshToken: 'renova-da-porta', expiraEm: Date.now() + 3600000 } })
+      // com conta, os limites do grátis passam a valer; estes blocos carregam
+      // repertório de sobra e não são sobre plano, então a licença vai paga
+      t.objectStore('kv').put({ key: 'licenca', value: { plano: 'pago', validaAte: Date.now() + 30 * 86400000, conferidaEm: Date.now(), renova: true, userId: 'user-eder', jaFoiPagante: true } })
+      t.oncomplete = res
+    })
+    db.close()
+  })
+}
+const largaConta = async (alvo) => {
+  await alvo.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    await new Promise((res) => {
+      const t = db.transaction('kv', 'readwrite')
+      t.objectStore('kv').delete('conta')
+      t.objectStore('kv').delete('licenca')
+      t.objectStore('kv').delete('dono') // senão o próximo login cai na pergunta de troca de dono
+      t.oncomplete = res
+    })
+    db.close()
+  })
+}
+
 try {
   // ---------- a porta: aparelho novo cria conta antes de ver o app ----------
   // Decisão comercial do Eder: sem conta, sem app. Quem chega aqui já leu a
@@ -263,8 +296,25 @@ try {
   await page.click('.card:has-text("Show 30/08")')
   await page.waitForSelector('button:has-text("Assistente de carga")')
   check('show com esqueletos oferece o assistente', await page.isVisible('text=faltam 13 cifras'))
+
+  // BUSCA COM CRACHÁ (revisão de 04/09/2026). A busca vai com o crachá DA
+  // PESSOA, não com a chave pública do app, que mora dentro do app.js e é um
+  // arquivo aberto na internet. Deslogado, o app pede a conta em vez de chamar
+  // o buscador; o repertório que já está no aparelho continua intocado.
+  await page.click('button:has-text("Assistente de carga")')
+  await page.waitForSelector('.banner:has-text("Entre com o seu e-mail")', { timeout: 8000 })
+  check('BUSCA: deslogada, a busca pede a conta em vez de chamar o buscador', true)
+
+  // volta a ter conta (o mesmo e-mail da porta) e o assistente funciona
+  await seguraConta(page)
+  await page.evaluate(() => { location.hash = '#/shows' })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar button:has-text("Shows")', { timeout: 8000 })
+  await page.click('.card:has-text("Show 30/08")')
+  await page.waitForSelector('button:has-text("Assistente de carga")')
   await page.click('button:has-text("Assistente de carga")')
   await page.waitForSelector('.card:has-text("Natália · Legião Urbana")')
+  check('BUSCA: com a conta de volta, o assistente busca normalmente', true)
   check('busca no app lista resultados sozinha', true)
   await page.click('.card:has-text("Natália · Legião Urbana")')
   await page.waitForSelector('button:has-text("Usar esta")')
@@ -376,6 +426,12 @@ try {
     await alvo.waitForSelector('.content', { timeout: 8000 })
     await alvo.waitForTimeout(400)
   }
+
+  // desfaz a conta que o assistente de carga precisou ter: daqui para a frente
+  // o percurso é o de um aparelho deslogado de novo
+  await largaConta(page)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
 
   // sem conta: o motivo é a conta, não o dinheiro. Mandar assinar quem nem
   // entrou ainda é pedir para pagar por algo que a pessoa não tem como usar
@@ -570,6 +626,8 @@ try {
   await page.unroute('**/functions/v1/sync*')
   await page.unroute('**/functions/v1/licenca*')
   await page.unroute('**/auth/v1/**')
+  // a busca de vídeo, logo abaixo, também vai com o crachá da pessoa
+  await seguraConta(page)
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForSelector('.tabbar', { timeout: 8000 })
 
@@ -834,6 +892,11 @@ try {
   await ctxL.close()
 
   // ---------- conta: entrar pelo e-mail, sem senha (servidor de auth simulado) ----------
+  // o bloco começa do zero: sem conta gravada
+  await largaConta(page)
+  await page.evaluate(() => { location.hash = '#/shows' })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.content', { timeout: 8000 })
   const CODIGO_BOM = '424242'
   let ultimoToken = '' // o que o app REALMENTE mandou para o servidor
   let emailPedido = ''

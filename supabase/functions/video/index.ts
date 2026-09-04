@@ -4,6 +4,13 @@
 //
 // Só devolve identificadores públicos de vídeo (o mesmo que a busca do
 // YouTube mostra); quem toca é o player oficial embutido no app.
+//
+// EXIGE O CRACHÁ DE UMA PESSOA (revisão de 04/09/2026). A função exige um JWT
+// válido para ser chamada, mas a chave pública do app também é um JWT válido, e
+// ela mora dentro do app.js, que é um arquivo aberto na internet. E o CORS não
+// é portão: quem chama de fora do navegador não manda cabeçalho Origin nenhum.
+// Sem conferir QUEM está pedindo, isto era um raspador do YouTube aberto,
+// rodando na conta e na fatura do Eder.
 
 const ALLOWED_ORIGINS = new Set([
   'https://cifrapronta.com.br',
@@ -33,6 +40,21 @@ function json(data: unknown, status: number, origin: string): Response {
     status,
     headers: { ...corsHeaders(origin), 'Content-Type': 'application/json; charset=utf-8' },
   })
+}
+
+const BASE = Deno.env.get('SUPABASE_URL') ?? ''
+const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+
+/** Quem é o dono deste crachá, segundo o servidor de contas. Null se não vale. */
+async function quemE(token: string): Promise<string | null> {
+  if (!token) return null
+  const res = await fetch(BASE + '/auth/v1/user', {
+    headers: { apikey: SERVICE, Authorization: 'Bearer ' + token },
+  })
+  if (!res.ok) return null
+  const u = (await res.json()) as { email?: string }
+  const email = (u.email ?? '').trim().toLowerCase()
+  return email || null
 }
 
 function unescapeJson(s: string): string {
@@ -83,8 +105,17 @@ function extractHits(html: string): Hit[] {
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin') ?? ''
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(origin) })
-  if (origin && !ALLOWED_ORIGINS.has(origin)) return json({ error: 'origem não autorizada' }, 403, origin)
+  if (!ALLOWED_ORIGINS.has(origin)) return json({ error: 'origem não autorizada' }, 403, origin)
   if (req.method !== 'GET') return json({ error: 'somente GET' }, 405, origin)
+
+  const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
+  let quem: string | null
+  try {
+    quem = await quemE(token)
+  } catch {
+    return json({ error: 'não deu para conferir sua conta agora' }, 502, origin)
+  }
+  if (!quem) return json({ error: 'entre na sua conta primeiro' }, 401, origin)
 
   const q = (new URL(req.url).searchParams.get('q') ?? '').trim().slice(0, 120)
   if (q.length < 2) return json({ error: 'busca vazia' }, 400, origin)

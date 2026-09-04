@@ -1,7 +1,22 @@
 // Cliente do ajudante de busca (função no Supabase do Eder).
 // Sempre uma ação humana por chamada: buscar uma vez, ler uma página escolhida.
+//
+// A busca vai com o CRACHÁ DA PESSOA, não com a chave pública do app. A chave
+// pública está dentro do app.js, que é um arquivo aberto na internet: quem a
+// copiasse usava o buscador do Eder como proxy anônimo, na conta e na fatura
+// dele. Com o crachá, cada chamada tem um dono conhecido.
 
 import { FUNCOES, SUPABASE_ANON } from './supabase.ts'
+import { tokenDeAcesso } from './conta.ts'
+
+const SEM_CONTA = 'Entre com o seu e-mail para usar a busca. O que já está salvo continua funcionando sem conta.'
+
+/** Cabeçalhos com o crachá da pessoa. Sem conta, ninguém busca. */
+async function cabecalhos(): Promise<Record<string, string>> {
+  const token = await tokenDeAcesso()
+  if (!token) throw new Error(SEM_CONTA)
+  return { apikey: SUPABASE_ANON, Authorization: 'Bearer ' + token }
+}
 
 export interface SearchHit {
   title: string
@@ -20,15 +35,13 @@ export interface FetchedCifra {
 }
 
 const FN = FUNCOES + '/cifra'
-const KEY = SUPABASE_ANON
-
-const HEADERS = { apikey: KEY, Authorization: 'Bearer ' + KEY }
 
 async function call<T>(params: string): Promise<T> {
   if (!navigator.onLine) throw new Error('Sem internet agora. A busca precisa de sinal; o que já está salvo continua funcionando.')
+  const headers = await cabecalhos()
   let res: Response
   try {
-    res = await fetch(FN + params, { headers: HEADERS })
+    res = await fetch(FN + params, { headers })
   } catch {
     throw new Error('Não consegui falar com o buscador. Confira o sinal e tente de novo.')
   }
@@ -62,9 +75,10 @@ const FN_VIDEO = FUNCOES + '/video'
 /** Procura o clipe no YouTube pelo nome da música e do artista. */
 export async function searchVideos(q: string): Promise<VideoHit[]> {
   if (!navigator.onLine) throw new Error('O vídeo precisa de internet. No palco, a cifra continua funcionando sozinha.')
+  const headers = await cabecalhos()
   let res: Response
   try {
-    res = await fetch(FN_VIDEO + '?q=' + encodeURIComponent(q.trim()), { headers: HEADERS })
+    res = await fetch(FN_VIDEO + '?q=' + encodeURIComponent(q.trim()), { headers })
   } catch {
     throw new Error('Não consegui falar com o buscador de vídeos. Confira o sinal.')
   }
