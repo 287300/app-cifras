@@ -1,3 +1,6 @@
+-- APLICADA no projeto app-cifras (wgqygvywbedrcwhqbqkz) em 04/09/2026, pelo MCP do
+-- Supabase. Conferida: o indice eventos_pagamento_sem_repeticao existe.
+
 -- Um aviso de pagamento só pode valer uma vez.
 --
 -- A plataforma de recebimento entrega PELO MENOS UMA VEZ: se a resposta se
