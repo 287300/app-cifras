@@ -32,8 +32,17 @@ declare module 'node:crypto' {
     update(data: string | Uint8Array): ReturnType<typeof createHash>
     digest(encoding: 'hex'): string
   }
+  export function createHmac(
+    algo: string,
+    chave: string
+  ): {
+    update(data: string | Uint8Array): ReturnType<typeof createHmac>
+    digest(encoding: 'hex'): string
+  }
+  export function randomUUID(): string
 }
 declare module 'node:fs' {
+  export function readFileSync(path: string, encoding: 'utf8'): string
   export function readFileSync(path: string): Uint8Array
   export function writeFileSync(path: string, data: string): void
   export function mkdirSync(path: string, opts?: { recursive?: boolean }): void
@@ -46,7 +55,7 @@ declare module 'node:fs' {
 declare module 'node:path' {
   export function join(...parts: string[]): string
 }
-declare const process: { exit(code?: number): never }
+declare const process: { exit(code?: number): never; argv: string[] }
 
 interface ImportMeta {
   dir: string
@@ -62,4 +71,10 @@ declare namespace Bun {
     naming?: string | { entry?: string }
     sourcemap?: 'none' | 'linked' | 'inline' | 'external'
   }): Promise<{ success: boolean; outputs: Array<{ path: string }>; logs: unknown[] }>
+
+  // servidor mínimo, usado só pelo simulador de pagamento
+  function serve(config: {
+    port?: number
+    fetch(req: Request): Response | Promise<Response>
+  }): { port: number; stop(): void }
 }

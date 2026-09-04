@@ -103,10 +103,15 @@ export function diasAteExigirInternet(licenca: Licenca, agora: number): number {
   return Math.min(TOLERANCIA_DIAS, faltam)
 }
 
+// <<< regra-da-cobranca
 /**
  * Tabela de decisão da cobrança. É esta função que a função de borda usa ao
  * receber o webhook, seja qual for a plataforma: o tradutor de cada uma só
  * precisa entregar um EventoPagamento.
+ *
+ * ATENÇÃO: copiada letra por letra dentro de supabase/functions/pagamento/,
+ * porque função de borda é um arquivo só. O teste cobranca.test.ts compara as
+ * duas cópias e quebra se alguém mexer em uma e esquecer a outra.
  */
 export function aplicarEventoDePagamento(atual: Licenca, evento: EventoPagamento, agora: number): Licenca {
   const periodo = PERIODO_DIAS * DIA
@@ -132,3 +137,4 @@ export function aplicarEventoDePagamento(atual: Licenca, evento: EventoPagamento
       return { plano: 'gratis', validaAte: 0, conferidaEm: agora, renova: false }
   }
 }
+// >>> regra-da-cobranca

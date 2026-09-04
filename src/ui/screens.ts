@@ -3,9 +3,10 @@
 
 import { contaAtual, entrarComCodigo, ErroDaNuvem, onContaChange, pedirCodigo, recadoDoLink, sair } from '../conta.ts'
 import { ajustaDonoPelaTela, type AvisoDeTroca, type RespostaDaTroca } from '../dono.ts'
-import { CONTATO, LINK, PRECO, VANTAGENS } from '../compra.ts'
+import { CONTATO, PRECO, VANTAGENS } from '../compra.ts'
+import { copia, esperaOPagamento, pedeCobranca, type Cobranca } from '../pagamento.ts'
 import { quantoFalta, recadoAoSalvar, travadosNoPlano } from '../engine/limites.ts'
-import { avisoDaLicenca, jaFoiPagante, limitesValem, onLicencaChange, planoAtual } from '../licenca.ts'
+import { avisoDaLicenca, jaFoiPagante, licencaAtual, limitesValem, onLicencaChange, planoAtual } from '../licenca.ts'
 import { codigoCompleto, codigoMorreu, normalizaCodigo, sugestaoDeEmail } from '../engine/conta.ts'
 import { motivoParaAssinar, textoDoBloqueio } from '../engine/sincronizacao.ts'
 import { parseCifra } from '../engine/parse.ts'
@@ -118,22 +119,17 @@ function cabeMaisUma(): boolean {
 
 /** A folha do que se ganha pagando. `motivo` diz por que ela apareceu. */
 function folhaDeAssinatura(motivo: string): void {
-  const acao = LINK
-    ? h('a', { className: 'btn primary block', href: LINK, target: '_blank', rel: 'noopener' }, 'Quero assinar')
-    : h(
-        'button',
-        {
-          className: 'btn primary block',
-          onClick: () => {
-            close()
-            alertSheet(
-              'Para assinar',
-              `Escreva para ${CONTATO} dizendo que quer assinar o app. A liberação é feita na hora e nada do que está neste aparelho muda.`
-            )
-          },
-        },
-        'Quero assinar'
-      )
+  const acao = h(
+    'button',
+    {
+      className: 'btn primary block',
+      onClick: () => {
+        close()
+        navigate({ name: 'assinar' })
+      },
+    },
+    'Quero assinar'
+  )
   const close = sheet(
     h('h2', null, 'Assinando, isso some'),
     h('p', { style: { marginBottom: '10px' } }, motivo),
@@ -2277,6 +2273,201 @@ export function botaoScreen(): HTMLElement {
     )
   )
   root.append(content)
+  return root
+}
+
+/**
+ * A tela de assinar: gera o Pix, mostra o código e espera o dinheiro cair.
+ *
+ * A tela inteira é uma máquina de quatro estados, e ela se redesenha por
+ * completo a cada troca. É mais código do que atualizar pedaço por pedaço, e é
+ * muito menos defeito: não existe caminho em que sobra na tela um botão de um
+ * estado que já passou.
+ *
+ * Nada aqui decide se a pessoa paga. Quem decide é o servidor, e o app só
+ * pergunta. Um botão desta tela nunca destrava nada sozinho.
+ */
+export function assinarScreen(): HTMLElement {
+  const root = h('div', { className: 'screen' })
+  root.append(topbar('Assinar', { back: { name: 'more' } }))
+  const content = h('div', { className: 'content' })
+  root.append(content)
+
+  let paraDeEsperar: (() => void) | null = null
+  let relogio: ReturnType<typeof setInterval> | null = null
+  const naTela = () => root.isConnected
+
+  function limpa(): void {
+    if (paraDeEsperar) paraDeEsperar()
+    paraDeEsperar = null
+    if (relogio) clearInterval(relogio)
+    relogio = null
+  }
+
+  function troca(...partes: (HTMLElement | null)[]): void {
+    limpa()
+    content.replaceChildren(...partes.filter((p): p is HTMLElement => p !== null))
+  }
+
+  const ajuda = () =>
+    h(
+      'p',
+      { className: 'hint', style: { marginTop: '18px' } },
+      `Pagou e não liberou? Escreva para ${CONTATO} com o e-mail da conta. A liberação é feita na mão, e nada do que está neste aparelho muda.`
+    )
+
+  // ---------- 1. sem conta ----------
+  function pedeConta(): void {
+    troca(
+      h('h2', { style: { fontSize: '19px', marginBottom: '10px' } }, 'Entre com o seu e-mail'),
+      h(
+        'p',
+        { style: { lineHeight: '1.55', marginBottom: '14px' } },
+        'A assinatura fica presa ao seu e-mail, e é ele que destrava o app em qualquer aparelho seu. Sem conta não há a quem liberar.'
+      ),
+      h('button', { className: 'btn primary block', onClick: () => navigate({ name: 'more' }) }, 'Entrar com o meu e-mail'),
+      ajuda()
+    )
+  }
+
+  // ---------- 2. já é assinante ----------
+  function jaEAssinante(): void {
+    const dias = Math.max(0, Math.ceil((licencaAtual().validaAte - Date.now()) / 86_400_000))
+    troca(
+      h('h2', { style: { fontSize: '19px', marginBottom: '10px' } }, '✅ Sua assinatura está ativa'),
+      h(
+        'p',
+        { style: { lineHeight: '1.55', marginBottom: '14px' } },
+        dias > 0
+          ? `Vale por mais ${dias} ${dias === 1 ? 'dia' : 'dias'}. Perto do fim você recebe um e-mail com o link para renovar.`
+          : 'Renove para continuar sem limites.'
+      ),
+      h('button', { className: 'btn primary block', onClick: () => navigate({ name: 'shows' }) }, 'Voltar para os shows'),
+      ajuda()
+    )
+  }
+
+  // ---------- 3. o convite ----------
+  function convida(erro?: string): void {
+    const botao = h('button', { className: 'btn primary block' }, 'Gerar código Pix') as HTMLButtonElement
+    botao.addEventListener('click', () => {
+      botao.disabled = true
+      botao.textContent = 'Gerando…'
+      void pedeCobranca()
+        .then((c) => mostraOPix(c))
+        .catch((e: unknown) => convida(e instanceof Error ? e.message : 'Não deu para gerar a cobrança agora.'))
+    })
+    troca(
+      h('h2', { style: { fontSize: '19px', marginBottom: '10px' } }, 'Assinatura do Cifra Pronta'),
+      h(
+        'ul',
+        { style: { margin: '0 0 14px 18px', padding: '0', lineHeight: '1.7' } },
+        ...VANTAGENS.map((v) => h('li', null, v))
+      ),
+      h(
+        'p',
+        { style: { marginBottom: '14px', lineHeight: '1.55' } },
+        `${PRECO}, no Pix. Cancela quando quiser, e nada é apagado: o que está no aparelho continua seu.`
+      ),
+      erro ? h('p', { className: 'hint', style: { color: '#b00020', marginBottom: '12px' } }, erro) : null,
+      botao,
+      ajuda()
+    )
+  }
+
+  // ---------- 4. o código na tela, esperando cair ----------
+  function mostraOPix(cobranca: Cobranca): void {
+    const codigo = h('textarea', { rows: 3, readOnly: true }) as HTMLTextAreaElement
+    codigo.value = cobranca.copiaECola
+
+    const copiar = h('button', { className: 'btn primary block' }, '📋 Copiar código Pix') as HTMLButtonElement
+    copiar.addEventListener('click', () => {
+      void copia(cobranca.copiaECola).then((deu) => {
+        if (deu) {
+          copiar.textContent = '✓ Código copiado'
+          setTimeout(() => (copiar.textContent = '📋 Copiar código Pix'), 2000)
+        } else {
+          // navegador que não deixa copiar por programa: seleciona para a
+          // pessoa copiar com o dedo, que é o que ela faria de qualquer jeito
+          codigo.focus()
+          codigo.select()
+        }
+      })
+    })
+
+    const contagem = h('p', { className: 'hint', style: { marginTop: '10px' } })
+    const fim = Date.parse(cobranca.expiraEm) || Date.now() + 900_000
+    const atualizaContagem = (): void => {
+      if (!naTela()) {
+        limpa()
+        return
+      }
+      const restam = Math.max(0, Math.floor((fim - Date.now()) / 1000))
+      if (restam === 0) {
+        convida('O código venceu antes de o pagamento cair. Gere outro, leva um segundo.')
+        return
+      }
+      const m = Math.floor(restam / 60)
+      const s = String(restam % 60).padStart(2, '0')
+      contagem.textContent = `Este código vale por mais ${m}:${s}. Estou de olho: assim que o Pix cair, esta tela muda sozinha.`
+    }
+
+    troca(
+      h('h2', { style: { fontSize: '19px', marginBottom: '4px' } }, 'Pague com Pix'),
+      h(
+        'p',
+        { className: 'hint', style: { marginBottom: '14px' } },
+        `R$ ${(cobranca.valorCentavos / 100).toFixed(2).replace('.', ',')} · ${cobranca.email}`
+      ),
+      cobranca.qrPngBase64
+        ? h('img', {
+            src: 'data:image/png;base64,' + cobranca.qrPngBase64,
+            alt: 'QR code do Pix',
+            style: {
+              display: 'block',
+              width: '220px',
+              height: '220px',
+              margin: '0 auto 14px',
+              imageRendering: 'pixelated',
+              background: '#fff',
+              border: '1px solid #ddd',
+              borderRadius: '8px',
+            },
+          })
+        : null,
+      h('div', { className: 'field' }, copiar),
+      h(
+        'p',
+        { className: 'hint', style: { marginBottom: '8px' } },
+        'No celular, copiar é mais rápido que fotografar a própria tela: copie o código, abra o banco e escolha Pix copia e cola.'
+      ),
+      h('div', { className: 'field' }, h('label', null, 'Código copia e cola'), codigo),
+      contagem,
+      ajuda()
+    )
+
+    atualizaContagem()
+    relogio = setInterval(atualizaContagem, 1000)
+    paraDeEsperar = esperaOPagamento(() => liberou(), naTela)
+  }
+
+  // ---------- e o fim feliz ----------
+  function liberou(): void {
+    troca(
+      h('h2', { style: { fontSize: '19px', marginBottom: '10px' } }, '🎉 Pronto, assinatura liberada'),
+      h(
+        'p',
+        { style: { lineHeight: '1.55', marginBottom: '14px' } },
+        'Biblioteca e shows sem limite, nos seus aparelhos. Nada do que estava travado foi perdido: já está tudo aberto de novo.'
+      ),
+      h('button', { className: 'btn primary block', onClick: () => navigate({ name: 'shows' }) }, 'Voltar para os shows')
+    )
+  }
+
+  if (!contaAtual()) pedeConta()
+  else if (planoAtual() === 'pago') jaEAssinante()
+  else convida()
+
   return root
 }
 

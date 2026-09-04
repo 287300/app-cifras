@@ -28,8 +28,20 @@ const ROOT = join(import.meta.dir, '..')
 const OUT = join(ROOT, 'docs')
 const APP = join(OUT, 'app') // o app inteiro mora aqui; a raiz é a venda
 
-// 1) limpa e recria docs/
-rmSync(OUT, { recursive: true, force: true })
+// 1) limpa e recria docs/, POUPANDO docs/agents/
+//
+// docs/ é saída de build e some inteira a cada rodada. A exceção é docs/agents/,
+// que é código-fonte de verdade: são os arquivos que a skill code-review lê, e
+// ela procura exatamente nesse caminho, que não dá para escolher. Antes desta
+// linha, todo `bun run build` apagava os dois arquivos em silêncio, e a revisão
+// seguinte rodava sem o rastreador de issues sem ninguém notar.
+const POUPADOS = new Set(['agents'])
+if (existsSync(OUT)) {
+  for (const name of readdirSync(OUT)) {
+    if (POUPADOS.has(name)) continue
+    rmSync(join(OUT, name), { recursive: true, force: true })
+  }
+}
 mkdirSync(join(APP, 'assets'), { recursive: true })
 
 // 2) empacota o TypeScript para um único módulo do navegador
@@ -94,9 +106,12 @@ function walk(dir: string, base = ''): string[] {
   }
   return out
 }
-// marcas de versão e workers ficam de fora da conta: são gerados A PARTIR dela
+// marcas de versão e workers ficam de fora da conta: são gerados A PARTIR dela.
+// docs/agents/ também fica de fora, por dois motivos: não é parte do site (não
+// sobe para o servidor), e mexer num doc de agente não pode bumpar a versão do
+// app e mandar todo aparelho instalado limpar cache e recarregar.
 const FORA = new Set(['sw.js', '.htaccess', 'version.txt', 'versao.txt'])
-const daConta = (f: string) => !FORA.has(f.slice(f.lastIndexOf('/') + 1))
+const daConta = (f: string) => !f.startsWith('agents/') && !FORA.has(f.slice(f.lastIndexOf('/') + 1))
 
 // a versão cobre a árvore inteira, caminho e conteúdo. Assim qualquer mudança
 // de LUGAR (como esta, de / para /app/) muda a versão e dispara a autolimpeza

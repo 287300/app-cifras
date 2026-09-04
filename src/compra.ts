@@ -1,15 +1,14 @@
 // Tudo o que a assinatura precisa dizer na tela, em um lugar só.
 //
-// Enquanto a cobrança automática do Asaas não está de pé, a venda é na mão:
-// os dez primeiros clientes são músicos que o Eder conhece, e a licença é
-// liberada por ele. Quando a página de pagamento existir, basta preencher
-// LINK aqui e o botão passa a levar direto para o checkout, sem mexer em
-// mais nada do app.
+// Desde 04/09/2026 a compra é dentro do app: o botão "Quero assinar" leva para
+// a tela #/assinar, que gera o Pix e espera o dinheiro cair. Não há mais link
+// para fora nem checkout de terceiro.
+//
+// Quem gera a cobrança de verdade é a plataforma de recebimento, que vive em
+// projeto próprio. O app só conhece a função de borda `pagamento`, e é por isso
+// que trocar de meio de recebimento não encosta em nada daqui.
 
 export const PRECO = 'R$ 29,90 por mês'
-
-/** Endereço do checkout. Vazio enquanto a venda é na mão. */
-export const LINK = ''
 
 /** Para onde a pessoa escreve quando quer assinar (ou quando algo deu errado). */
 export const CONTATO = 'contato@cifrapronta.com.br'

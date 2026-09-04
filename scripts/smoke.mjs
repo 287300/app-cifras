@@ -1417,6 +1417,98 @@ try {
   })
   const marcaLocal = (await readFile(join(DOCS, 'app/versao.txt'), 'utf8')).trim()
   check('VERSÃO: a marca publicada chega ao app (' + marca + ')', marca === marcaLocal)
+  // ---------- assinar dentro do app: Pix na tela e liberação sozinha (ticket 25) ----------
+  // O aparelho está logado e no grátis, que é exatamente o estado de quem bate
+  // no limite e resolve pagar. A plataforma de recebimento é simulada aqui do
+  // mesmo jeito que ela responderá de verdade.
+  let cobrancasPedidas = 0
+  await page.route('**/functions/v1/pagamento*', (route) => {
+    cobrancasPedidas++
+    route.fulfill({
+      json: {
+        id: 'cob_do_ensaio',
+        copiaECola: '00020126580014BR.GOV.BCB.PIX0136cob_do_ensaio5204000053039865802BR6304ABCD',
+        qrPngBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        expiraEm: new Date(Date.now() + 900000).toISOString(),
+        valorCentavos: 2990,
+        email: 'pagante@gmail.com',
+      },
+    })
+  })
+
+  // o bloco anterior terminou pagante: aqui o aparelho volta ao grátis, que é
+  // o estado de quem vai assinar. A licença é escrita direto no aparelho e o
+  // servidor simulado concorda, senão a primeira ronda desfaz
+  let respostaLic = { plano: 'gratis', restamMs: 0, renova: false }
+  await page.route('**/functions/v1/licenca*', (route) => route.fulfill({ json: respostaLic }))
+  await page.route('**/auth/v1/**', (route) => {
+    const url = route.request().url()
+    const body = route.request().postDataJSON?.() || {}
+    if (url.includes('/otp')) return route.fulfill({ json: {} })
+    if (url.includes('/verify')) return route.fulfill({ json: sessaoFalsa(body.email) })
+    if (url.includes('/token')) return route.fulfill({ json: sessaoFalsa(emailPedido) })
+    if (url.includes('/user')) return route.fulfill({ json: { id: userId, email: emailPedido } })
+    if (url.includes('/logout')) return route.fulfill({ status: 204, body: '' })
+    return route.fulfill({ status: 400, json: { msg: 'rota não simulada' } })
+  })
+  await page.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const r = indexedDB.open('cifras'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    const conta = await new Promise((res, rej) => { const t = db.transaction('kv', 'readonly'); const r = t.objectStore('kv').get('conta'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error) })
+    await new Promise((res) => {
+      const t = db.transaction('kv', 'readwrite')
+      t.objectStore('kv').put({ key: 'licenca', value: { plano: 'gratis', validaAte: 0, conferidaEm: Date.now(), renova: false, userId: conta?.value?.userId || '', jaFoiPagante: true } })
+      t.oncomplete = res
+    })
+    db.close()
+  })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  await page.waitForFunction(() => (document.querySelector('.content')?.textContent || '').includes('Plano: grátis'), null, { timeout: 12000 })
+
+  // o caminho real: a folha do limite aparece, e o botão dela leva para a tela
+  await page.click('.tabbar button:has-text("Biblioteca")')
+  await page.waitForSelector('.topbar h1:has-text("Biblioteca")', { timeout: 8000 })
+  await page.waitForSelector('.list .card.travado', { timeout: 8000 })
+  await page.click('.list .card.travado .grow')
+  await page.waitForSelector('.sheet button:has-text("Quero assinar")', { timeout: 8000 })
+  await page.click('.sheet button:has-text("Quero assinar")')
+  await page.waitForFunction(() => location.hash === '#/assinar', null, { timeout: 8000 }).catch(() => undefined)
+  const veioPelaFolha = await page.evaluate(() => location.hash === '#/assinar')
+  if (!veioPelaFolha) await page.evaluate(() => { location.hash = '#/assinar' })
+  await page.waitForSelector('button:has-text("Gerar código Pix")', { timeout: 8000 })
+  check('ASSINAR: a folha do limite leva para a tela de pagamento', veioPelaFolha)
+
+  await page.click('button:has-text("Gerar código Pix")')
+  await page.waitForSelector('button:has-text("Copiar código Pix")', { timeout: 8000 })
+  const textoDoPix = await page.textContent('.content')
+  check('ASSINAR: o código copia e cola aparece na tela', (await page.locator('textarea').inputValue()).startsWith('000201'))
+  check('ASSINAR: o QR aparece', (await page.locator('.content img').count()) === 1)
+  check('ASSINAR: a tela avisa quanto tempo o código vale', /vale por mais \d+:\d\d/.test(textoDoPix))
+  check('ASSINAR: o app pediu a cobrança ao servidor uma vez só', cobrancasPedidas === 1)
+
+  // e agora o dinheiro cai: quem avisa é o servidor, e a tela vira sozinha,
+  // sem recarregar e sem a pessoa tocar em nada
+  respostaLic = { plano: 'pago', restamMs: 31 * DIA_MS, renova: true }
+  await page.waitForFunction(
+    () => (document.querySelector('.content')?.textContent || '').includes('assinatura liberada'),
+    null,
+    { timeout: 25000 }
+  )
+  check('ASSINAR: o Pix cai e a tela destrava sozinha, sem recarregar', true)
+  await page.evaluate(() => { location.hash = '#/shows' })
+  await page.evaluate(() => { location.hash = '#/assinar' })
+  await page.waitForFunction(
+    () => (document.querySelector('.content')?.textContent || '').includes('assinatura está ativa'),
+    null,
+    { timeout: 8000 }
+  )
+  check('ASSINAR: quem já assina não vê cobrança de novo', true)
+  await page.unroute('**/functions/v1/pagamento*')
+  await page.unroute('**/functions/v1/licenca*')
+  await page.unroute('**/auth/v1/**')
+
   const carimbo = await page.evaluate(async () => {
     const t = await (await fetch('assets/app.js')).text()
     return t.includes('__VERSAO__') ? 'placeholder' : 'carimbado'

@@ -10,7 +10,7 @@ import { VERSAO } from './version.ts'
 import { store } from './store.ts'
 import { initSync } from './sync.ts'
 import { h, clear } from './ui/dom.ts'
-import { addScreen, avisoSimples, botaoScreen, buscarScreen, cargaScreen, editScreen, libraryScreen, moreScreen, perguntaTrocaDeConta, planbScreen, playerScreen, portaScreen, showEditScreen, showsScreen, songScreen } from './ui/screens.ts'
+import { addScreen, assinarScreen, avisoSimples, botaoScreen, buscarScreen, cargaScreen, editScreen, libraryScreen, moreScreen, perguntaTrocaDeConta, planbScreen, playerScreen, portaScreen, showEditScreen, showsScreen, songScreen } from './ui/screens.ts'
 
 const rootEl = document.getElementById('root')!
 
@@ -70,6 +70,9 @@ function render(route: Route): void {
       break
     case 'botao':
       rootEl.append(botaoScreen())
+      break
+    case 'assinar':
+      rootEl.append(assinarScreen())
       break
     case 'carga':
       rootEl.append(cargaScreen(route.showId))
