@@ -82,7 +82,32 @@ export type EstadoLicenca =
  */
 export function estadoDaLicenca(licenca: Licenca, agora: number): EstadoLicenca {
   if (licenca.plano !== 'pago') return 'gratis'
-  if (agora > licenca.validaAte) return 'expirada'
+  // QUEM CANCELOU tem data final de verdade: não há renovação para esperar, e
+  // passar do prazo pago é o fim, sem folga.
+  //
+  // QUEM AINDA RENOVA é outra história, e é aqui que estava o pior defeito do
+  // app. O cartão renova todo dia 1º. O músico confere a licença em casa no
+  // dia 29, viaja, e toca no sábado dia 2 em modo avião. A plataforma já
+  // cobrou e o servidor já esticou o prazo, mas o aparelho ficou com o valor
+  // velho e, sem internet, nunca vai saber. Cortar ali seria rebaixar um
+  // assinante em dia NO MEIO DO SHOW, por causa de um dado que só está velho
+  // porque o app não teve como perguntar.
+  //
+  // Então, para quem renova, quem manda é a tolerância offline abaixo: ela
+  // conta a partir da última confirmação e não deixa ninguém ficar pago para
+  // sempre — no máximo 7 dias depois de o servidor ter dito que estava tudo
+  // certo. É o critério de aceite do ticket 11, escrito com todas as letras:
+  // "tolerância de 7 dias sem internet para quem ainda renova; quem cancelou
+  // não ganha fôlego além do fim do período pago".
+  //
+  // E a folga tem uma segunda trava, além dos 7 dias: ela só vale se a
+  // confirmação for ANTERIOR ao vencimento. Se o servidor confirmou DEPOIS da
+  // data e ainda assim mandou esse prazo, não há prazo novo esperando do outro
+  // lado — o servidor está vendo a verdade e a verdade é que acabou.
+  if (agora > licenca.validaAte) {
+    if (licenca.renova === false) return 'expirada'
+    if (licenca.conferidaEm > licenca.validaAte) return 'expirada'
+  }
   const faltam = diasAteExigirInternet(licenca, agora)
   if (faltam < 0) return 'expirada'
   return faltam <= AVISO_DIAS ? 'tolerancia' : 'ativa'

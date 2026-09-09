@@ -106,8 +106,15 @@ describe('eventos da plataforma de pagamento', () => {
 
   test('atraso no cartão dá 5 dias de fôlego e não corta o show', () => {
     const l = aplicarEventoDePagamento(paga(-1), 'atraso', AGORA)
+    expect(l.validaAte).toBe(AGORA + 5 * DIA) // a carência do cartão recusado
     expect(estadoDaLicenca(l, AGORA)).toBe('ativa')
-    expect(estadoDaLicenca(l, AGORA + 6 * DIA)).toBe('expirada')
+    // Passada a carência, quem manda é a tolerância offline, porque `renova`
+    // continua verdadeiro: o cartão pode ter sido aceito na segunda tentativa e
+    // o aparelho, sem internet, não tem como saber. Cortar aqui seria o defeito
+    // Spec 7 de novo, com outra roupa. O teto continua sendo 7 dias da última
+    // confirmação, e uma única conexão põe a verdade do servidor no lugar.
+    expect(estadoDaLicenca(l, AGORA + 6 * DIA)).toBe('tolerancia')
+    expect(estadoDaLicenca(l, AGORA + 8 * DIA)).toBe('expirada')
   })
 
   test('atraso não encurta quem já tinha prazo maior', () => {
@@ -123,12 +130,54 @@ describe('eventos da plataforma de pagamento', () => {
     expect(estadoDaLicenca(l, AGORA + 13 * DIA)).toBe('expirada')
   })
 
-  test('acabado o periodo pago acabou, cancelada ou nao', () => {
-    // o prazo e o prazo: nao existe folga depois do fim, com ou sem renovacao
+  test('quem cancelou acaba na data, sem folga nenhuma', () => {
+    // nao ha renovacao para esperar: passou do prazo pago, acabou
     const cancelada: Licenca = { plano: 'pago', validaAte: AGORA - DIA, conferidaEm: AGORA, renova: false }
     expect(estadoDaLicenca(cancelada, AGORA)).toBe('expirada')
-    const renovando: Licenca = { ...cancelada, renova: true }
-    expect(estadoDaLicenca(renovando, AGORA)).toBe('expirada')
+    expect(planoEfetivo(cancelada, AGORA)).toBe('gratis')
+  })
+
+  test('quem ainda renova nao e rebaixado no palco por prazo velho', () => {
+    // O DEFEITO QUE ISTO IMPEDE (achado Spec 7 da revisao de 04/09): o cartao
+    // renova todo dia 1o. O musico confere em casa no dia 29, viaja, e toca no
+    // sabado dia 2 em modo aviao. O servidor ja esticou o prazo, mas o aparelho
+    // ficou com o valor velho e sem internet nunca vai saber. Cortar ali seria
+    // rebaixar um assinante em dia no meio do show.
+    const conferiuNoDia29: Licenca = {
+      plano: 'pago',
+      validaAte: AGORA + 2 * DIA, // vence no dia 1o
+      conferidaEm: AGORA, // conferiu no dia 29
+      renova: true,
+    }
+    const sabadoDia2 = AGORA + 3 * DIA
+    expect(sabadoDia2 > conferiuNoDia29.validaAte).toBe(true) // passou do prazo velho
+    expect(estadoDaLicenca(conferiuNoDia29, sabadoDia2)).not.toBe('expirada')
+    expect(planoEfetivo(conferiuNoDia29, sabadoDia2)).toBe('pago')
+  })
+
+  test('a folga de quem renova tem fim: 7 dias da ultima confirmacao', () => {
+    // o outro lado da moeda. Nao existe "pago para sempre por ficar offline":
+    // a tolerancia conta da ultima confirmacao, nao do vencimento
+    const renovando: Licenca = { plano: 'pago', validaAte: AGORA + DIA, conferidaEm: AGORA, renova: true }
+    expect(estadoDaLicenca(renovando, AGORA + 7 * DIA)).toBe('tolerancia')
+    expect(estadoDaLicenca(renovando, AGORA + 8 * DIA)).toBe('expirada')
+    expect(planoEfetivo(renovando, AGORA + 8 * DIA)).toBe('gratis')
+  })
+
+  test('licenca sem o campo renova conta como quem renova', () => {
+    // linhas antigas, gravadas antes do campo existir, nao podem cortar ninguem
+    const semCampo: Licenca = { plano: 'pago', validaAte: AGORA + DIA, conferidaEm: AGORA }
+    const doisDiasDepois = AGORA + 2 * DIA // ja passou do prazo guardado
+    expect(estadoDaLicenca(semCampo, doisDiasDepois)).toBe('ativa')
+    // a mesma linha, com o cancelamento explicito, corta
+    expect(estadoDaLicenca({ ...semCampo, renova: false }, doisDiasDepois)).toBe('expirada')
+  })
+
+  test('confirmacao DEPOIS do vencimento nao ganha folga, mesmo renovando', () => {
+    // se o servidor confirmou depois da data e ainda mandou esse prazo, nao ha
+    // prazo novo esperando do outro lado: o servidor esta vendo a verdade
+    const conferidaDepois: Licenca = { plano: 'pago', validaAte: AGORA - DIA, conferidaEm: AGORA, renova: true }
+    expect(estadoDaLicenca(conferidaDepois, AGORA)).toBe('expirada')
   })
 
   test('reembolso corta o acesso pago na hora', () => {

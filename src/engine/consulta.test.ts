@@ -93,4 +93,21 @@ describe('o aviso de que vai precisar de internet', () => {
     expect(fora).toContain('grátis')
     expect(fora).toContain('internet')
   })
+
+  test('quem cancelou ouve que a assinatura acabou, e não que falta internet', () => {
+    const cancelada: Licenca = { plano: 'pago', validaAte: AGORA - DIA, conferidaEm: AGORA, renova: false }
+    const recado = textoDoAviso(cancelada, AGORA)
+    expect(recado).toContain('chegou ao fim')
+    expect(recado).not.toContain('internet') // wi-fi não resolve prazo que acabou
+  })
+
+  test('quem ainda renova ouve para conectar, e não que a assinatura acabou', () => {
+    // o mesmo estado, só que renovando: o prazo guardado é que está velho, e o
+    // remédio é internet. Mandar "sua assinatura acabou" aqui faria um
+    // assinante em dia achar que perdeu o que pagou
+    const renovando: Licenca = { plano: 'pago', validaAte: AGORA - DIA, conferidaEm: AGORA - 9 * DIA, renova: true }
+    const recado = textoDoAviso(renovando, AGORA)
+    expect(recado).toContain('internet')
+    expect(recado).not.toContain('chegou ao fim')
+  })
 })

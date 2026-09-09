@@ -53,8 +53,14 @@ export function textoDoAviso(licenca: Licenca, agora: number): string | null {
   if (estado === 'expirada') {
     // duas causas diferentes, e a pessoa precisa saber qual foi: prazo que
     // acabou não se resolve com wi-fi, e falta de internet não se resolve
-    // pagando de novo. Ficar em silêncio é o pior dos dois mundos
-    if (agora > licenca.validaAte) {
+    // pagando de novo. Ficar em silêncio é o pior dos dois mundos.
+    //
+    // O `renova === false` é o que separa as duas. Passar da data só é fim de
+    // assinatura para quem cancelou. Para quem ainda renova, passar da data
+    // offline quer dizer "o aparelho está com o prazo velho", e o remédio é
+    // internet, não pagar de novo. Mandar a mensagem errada aqui faria um
+    // assinante em dia achar que a assinatura dele acabou
+    if (licenca.renova === false && agora > licenca.validaAte) {
       return 'Sua assinatura chegou ao fim, então o app voltou para os limites do grátis. Nada foi apagado: nenhuma música, nenhum show.'
     }
     const dias = Math.max(TOLERANCIA_DIAS, Math.floor((agora - licenca.conferidaEm) / 86_400_000))
