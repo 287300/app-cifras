@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { noteToPc, pcToName, transposeKey, keyUsesFlats } from './notes.ts'
+import { noteToPc, pcToName, transposeKey, keyUsesFlats, parseKey, TONS, MAJOR_SPELL, MINOR_SPELL } from './notes.ts'
 
 describe('notas: nome para classe de altura', () => {
   it('reconhece naturais, sustenidos e bemóis', () => {
@@ -62,5 +62,36 @@ describe('tons: preferência por bemóis', () => {
     expect(keyUsesFlats('F#m')).toBe(false)
     expect(keyUsesFlats('Am')).toBe(false)
     expect(keyUsesFlats('Bm')).toBe(false)
+  })
+})
+
+describe('a lista de tons que a tela oferece', () => {
+  // Esta lista morava escrita a mao em src/ui/screens.ts (achado Standards 1 da
+  // revisao de 04/09). Duas listas de grafia e uma esperando para discordar da
+  // outra, e quem discordasse ia transpor errado no palco.
+  it('sao 25: os 12 maiores, o C# de cortesia e os 12 menores', () => {
+    expect(TONS.length).toBe(25)
+    expect(TONS.filter((t) => t.endsWith('m')).length).toBe(12)
+  })
+
+  it('nenhum tom repetido', () => {
+    expect(new Set(TONS).size).toBe(TONS.length)
+  })
+
+  it('todo tom da lista e um tom que o app sabe ler', () => {
+    for (const t of TONS) expect(parseKey(t)).not.toBe(null)
+  })
+
+  it('a lista usa a mesma grafia da transposicao, sem excecao', () => {
+    // se estas duas discordarem, escolher um tom na tela e transpor de volta
+    // para ele devolveria outro nome
+    for (const t of MAJOR_SPELL) expect(TONS).toContain(t)
+    for (const t of MINOR_SPELL) expect(TONS).toContain(t)
+  })
+
+  it('o C# maior fica na lista, e transpor a partir dele ja devolve Db', () => {
+    // cifra de internet vem escrita assim e a pessoa precisa achar o que leu
+    expect(TONS).toContain('C#')
+    expect(transposeKey('C#', 0)).toBe('Db')
   })
 })

@@ -28,9 +28,23 @@ export function mod12(n: number): number {
 
 // Grafia usual de cada tom (menos acidentes na armadura):
 // maiores: Db(5b) em vez de C#(7#), F#(6#) em vez de Gb(6b), B(5#) em vez de Cb(7b)
-const MAJOR_SPELL = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'] as const
+export const MAJOR_SPELL = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'] as const
 // menores: Ebm(6b) em vez de D#m(6#), G#m(5#) em vez de Abm(7b), Bbm(5b) em vez de A#m(7#)
-const MINOR_SPELL = ['Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm'] as const
+export const MINOR_SPELL = ['Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm'] as const
+
+/**
+ * Os tons que o app oferece para escolher, na ordem em que aparecem na lista.
+ *
+ * Esta lista morava escrita à mão em `src/ui/screens.ts` (achado Standards 1 da
+ * revisão de 04/09): 25 tons com grafia, que é exatamente `MAJOR_SPELL` +
+ * `MINOR_SPELL`. Duas listas de grafia é uma esperando para discordar da outra
+ * — e quem discordasse ia transpor errado no palco.
+ *
+ * O 25º é o `C#` maior, que não está em `MAJOR_SPELL` porque a grafia usual de
+ * lá é `Db`. Ele fica na lista porque cifra de internet vem escrita assim e a
+ * pessoa precisa achar o que leu. Transpor a partir dele já devolve `Db`.
+ */
+export const TONS: readonly string[] = ['C', 'C#', ...MAJOR_SPELL.slice(1), ...MINOR_SPELL]
 
 const KEY_RE = /^([A-G](?:##|bb|#|b)?)(m)?$/
 
