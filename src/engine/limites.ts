@@ -29,6 +29,55 @@ export function idsTravados(itens: Item[], teto: number): string[] {
   return ordenado.slice(teto).map((i) => i.id)
 }
 
+/** Um show, para efeito de trava: além do id e da criação, a data em que ele acontece. */
+export interface ItemDeShow extends Item {
+  /** ISO `aaaa-mm-dd`, ou vazio quando a pessoa não pôs data. */
+  date: string
+}
+
+/** A data de hoje no fuso DO APARELHO, em ISO. Nunca UTC. */
+export function hojeLocal(d = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/**
+ * Os shows na ordem em que importam HOJE.
+ *
+ * Para música, manter as mais antigas abertas é defensável e está explicado lá
+ * em cima. PARA SHOW É O CONTRÁRIO, e essa era a raiz do defeito Spec 8: show
+ * é um evento com data. Com teto de 1, `idsTravados` deixava aberto o show
+ * MAIS ANTIGO já criado e trancava o de hoje — com cadeado e sem caminho para
+ * o palco. O músico chegava no show e não conseguia abrir o show.
+ *
+ * A ordem certa é a de quem vai subir no palco:
+ *
+ *   1. o que vem aí, do mais próximo para o mais distante (hoje conta como
+ *      "vem aí": o show do dia é o mais importante que existe);
+ *   2. depois os que já passaram, do mais recente para o mais antigo, porque
+ *      repertório de show recente é o que se reaproveita;
+ *   3. por último os sem data, do criado mais recentemente para o mais antigo.
+ *
+ * Empate é desempatado pelo id, para o resultado nunca dançar entre aberturas.
+ */
+export function showsPorRelevancia(shows: ItemDeShow[], hoje: string): ItemDeShow[] {
+  const grupo = (s: ItemDeShow): number => (!s.date ? 2 : s.date >= hoje ? 0 : 1)
+  return [...shows].sort((a, b) => {
+    const ga = grupo(a)
+    const gb = grupo(b)
+    if (ga !== gb) return ga - gb
+    if (ga === 0) return a.date.localeCompare(b.date) || a.id.localeCompare(b.id)
+    if (ga === 1) return b.date.localeCompare(a.date) || a.id.localeCompare(b.id)
+    return b.createdAt - a.createdAt || a.id.localeCompare(b.id)
+  })
+}
+
+/** Os shows que passam do teto: os menos relevantes para hoje. */
+export function idsDeShowsTravados(shows: ItemDeShow[], teto: number, hoje: string): string[] {
+  if (!Number.isFinite(teto) || shows.length <= teto) return []
+  return showsPorRelevancia(shows, hoje).slice(teto).map((s) => s.id)
+}
+
 export interface Travados {
   musicas: Set<string>
   shows: Set<string>
@@ -46,13 +95,19 @@ export interface Travados {
  *   - quem pagou e parou vê as excedentes trancadas, visíveis e exportáveis.
  *     Essa pessoa sabia o que estava contratando, e nada foi apagado.
  */
-export function travadosNoPlano(plano: Plano, musicas: Item[], shows: Item[], jaFoiPagante = false): Travados {
+export function travadosNoPlano(
+  plano: Plano,
+  musicas: Item[],
+  shows: ItemDeShow[],
+  jaFoiPagante = false,
+  hoje = hojeLocal()
+): Travados {
   const vazio = { musicas: new Set<string>(), shows: new Set<string>() }
   if (plano === 'gratis' && !jaFoiPagante) return vazio
   const teto = limitesDoPlano(plano)
   return {
     musicas: new Set(idsTravados(musicas, teto.musicas)),
-    shows: new Set(idsTravados(shows, teto.shows)),
+    shows: new Set(idsDeShowsTravados(shows, teto.shows, hoje)),
   }
 }
 

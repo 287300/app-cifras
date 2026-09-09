@@ -136,9 +136,16 @@ try {
   check('PORTA: nenhum campo de senha existe na porta', (await page.locator('input[type="password"]').count()) === 0)
   check('PORTA: quem já usa o app tem saída pelo backup', (await page.locator('button:has-text("Restaurar um backup")').count()) === 1)
 
+  // No PRIMEIRO carregamento o service worker assume o controle e o app
+  // recarrega uma vez (main.ts, controllerchange). Preencher e clicar antes
+  // disso perde o clique com a página: era essa a instabilidade que derrubava
+  // a fumaça neste ponto, sem nenhuma relação com o que estava sendo testado.
+  await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 20000 }).catch(() => {})
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 12000 })
+
   await page.fill('input[placeholder="seu@email.com"]', 'eder@gmail.com')
   await page.click('button:has-text("Entrar com meu e-mail")')
-  await page.waitForSelector('.sheet input[placeholder="000000"]', { timeout: 8000 })
+  await page.waitForSelector('.sheet input[placeholder="000000"]', { timeout: 12000 })
   await page.fill('.sheet input[placeholder="000000"]', '123456')
   await page.waitForSelector('.sheet h2:has-text("Pronto")', { timeout: 8000 })
   await page.click('.sheet button:has-text("Ok")')
@@ -1384,7 +1391,45 @@ try {
     travados: document.querySelectorAll('.list .card.travado').length,
   }))
   check('LIMITE: nenhum show sumiu (' + nosShows.total + ' na tela)', nosShows.total === acervoNoGratis.shows)
-  check('LIMITE: só o primeiro show fica aberto', nosShows.travados === Math.max(0, acervoNoGratis.shows - 1))
+  check('LIMITE: só um show fica aberto', nosShows.travados === Math.max(0, acervoNoGratis.shows - 1))
+
+  // Spec 8: com teto de 1, o que fica ABERTO tem que ser o show que vem aí, não
+  // o mais antigo já criado. Antes desta correção o músico chegava no show e
+  // encontrava o show de hoje com cadeado, sem caminho nenhum para o palco.
+  const escolhido = await page.evaluate(() => {
+    const d = new Date()
+    const p = (n) => String(n).padStart(2, '0')
+    const hoje = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+    const todos = [...document.querySelectorAll('.list .card')].map((c) => {
+      const quando = (c.querySelector('.meta')?.textContent || '').split('·')[0].trim()
+      const m = quando.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+      return { quando, iso: m ? `${m[3]}-${m[2]}-${m[1]}` : '', travado: c.classList.contains('travado') }
+    })
+    // a mesma régua do engine, refeita aqui a partir do que está NA TELA
+    const grupo = (s) => (!s.iso ? 2 : s.iso >= hoje ? 0 : 1)
+    const esperado = [...todos].sort((a, b) => {
+      const ga = grupo(a), gb = grupo(b)
+      if (ga !== gb) return ga - gb
+      if (ga === 0) return a.iso.localeCompare(b.iso)
+      if (ga === 1) return b.iso.localeCompare(a.iso)
+      return 0
+    })[0]
+    return { aberto: todos.find((s) => !s.travado) || null, esperado, comData: todos.filter((s) => s.iso).length }
+  })
+  check('SHOW ABERTO: existe exatamente um show sem cadeado', escolhido.aberto !== null)
+  check(
+    'SHOW ABERTO: é o mais relevante para hoje (' + (escolhido.aberto?.quando || '?') + '), não o mais antigo',
+    escolhido.aberto?.quando === escolhido.esperado.quando
+  )
+  check('SHOW ABERTO: show com data ganha de show sem data', escolhido.comData === 0 || escolhido.aberto?.quando !== 'sem data')
+  // e ele precisa abrir de verdade: o defeito relatado era não haver caminho para o palco
+  await page.click('.list .card:not(.travado)')
+  await page.waitForSelector('.content', { timeout: 8000 })
+  const abriu = await page.evaluate(() => location.hash.startsWith('#/shows/'))
+  check('SHOW ABERTO: dá para entrar nele e montar o palco', abriu)
+  // a tela de detalhe não tem barra de abas: voltar pela rota, não pelo clique
+  await page.evaluate(() => { location.hash = '#/shows' })
+  await page.waitForSelector('.list .card', { timeout: 8000 })
   await page.click('button[aria-label="Novo show"]')
   await page.waitForSelector('.sheet h2:has-text("Assinando, isso some")', { timeout: 8000 })
   check('LIMITE: criar o segundo show oferece a assinatura', true)
