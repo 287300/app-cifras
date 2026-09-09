@@ -80,12 +80,65 @@ writeFileSync(
 )
 
 // 3.5) .htaccess para o espelho no Hostinger (o GitHub Pages ignora este arquivo):
-// sem listagem de pastas e sem cache de navegador (o offline fica por conta do service worker)
+// sem listagem de pastas, sem cache de navegador (o offline fica por conta do
+// service worker) e com os cabeçalhos de segurança do achado S8 da auditoria de
+// 04/09.
+//
+// Este arquivo fica FORA da conta da versão (ver FORA, logo abaixo), então
+// mexer nele não bumpa a versão do app nem manda todo aparelho instalado limpar
+// cache. Ele sobe sozinho para a Hostinger.
+//
+// A lista de origens externas é curta e conferida: o app fala com o Supabase, a
+// página de venda pega uma fonte do Google, e o modo ensaio embute o player do
+// YouTube. Nada mais. Qualquer coisa fora disso é bloqueada pelo navegador
+// antes de sair do aparelho.
+const SUPABASE = 'https://wgqygvywbedrcwhqbqkz.supabase.co'
+const CSP = [
+  // o que não estiver dito abaixo só pode vir daqui mesmo
+  "default-src 'self'",
+  // 'unsafe-inline' porque a página de venda tem dois <script> embutidos. Ainda
+  // assim isto barra <script src="site-de-fora">, que é o vetor que importa:
+  // não há innerHTML nem eval em lugar nenhum do app
+  "script-src 'self' 'unsafe-inline'",
+  `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+  'font-src https://fonts.gstatic.com',
+  // data: para o QR do Pix e para a textura de fundo da página de venda
+  "img-src 'self' data:",
+  `connect-src 'self' ${SUPABASE}`,
+  // o player do modo ensaio, e nada mais dentro de um quadro
+  'frame-src https://www.youtube-nocookie.com',
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  // CLICKJACKING: sem isto, qualquer site pode embutir o app num quadro
+  // invisível e colher o toque da pessoa em "Sair da conta" ou em "Assinar"
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join('; ')
+
 writeFileSync(
   join(OUT, '.htaccess'),
   [
     'Options -Indexes',
     'Header set Cache-Control "no-cache"',
+    '',
+    '# Cabeçalhos de segurança (achado S8 da auditoria de 04/09/2026).',
+    '# "always" para valerem também nas páginas de erro.',
+    '<IfModule mod_headers.c>',
+    `  Header always set Content-Security-Policy "${CSP}"`,
+    '  # companheiro antigo do frame-ancestors, para navegador que não lê CSP',
+    '  Header always set X-Frame-Options "DENY"',
+    '  # sem adivinhação de tipo: um .txt nunca vira script',
+    '  Header always set X-Content-Type-Options "nosniff"',
+    '  # o endereço de dentro do app não vaza para quem a pessoa visita depois',
+    '  Header always set Referrer-Policy "strict-origin-when-cross-origin"',
+    '  # um ano de HTTPS obrigatório. Sem includeSubDomains: os subdomínios são',
+    '  # do e-mail (send.), e não é aqui que se decide a vida deles',
+    '  Header always set Strict-Transport-Security "max-age=31536000"',
+    '  # o app não usa nada disto; pedir seria sinal de que algo está errado',
+    '  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"',
+    '</IfModule>',
     '',
     '# a raiz é a página de venda; o app mora em /app/',
     '# o endereço antigo do anúncio manda para a raiz, que agora é o próprio anúncio',

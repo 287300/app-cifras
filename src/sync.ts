@@ -24,6 +24,7 @@ import { onLicencaChange, planoAtual } from './licenca.ts'
 import { noPalcoAgora } from './router.ts'
 import { store } from './store.ts'
 import { FUNCOES, SUPABASE_ANON } from './supabase.ts'
+import { prazoDaRonda } from './engine/ganchos.ts'
 import { bloqueioDaSincronizacao, bloqueioDoServidor, textoDoBloqueio, type Bloqueio } from './engine/sincronizacao.ts'
 import {
   contentHash,
@@ -62,8 +63,9 @@ export interface SyncStatus {
 // De quanto em quanto tempo o app aberto olha a nuvem sozinho. Sem isso, um
 // aparelho que fica na tela (o iPad no ensaio) só descobre novidade quando
 // alguém sai e volta para o app.
-// (?ronda=1000 no endereço encurta a ronda: é o gancho usado pelos testes)
-const RONDA_MS = Number(new URLSearchParams(location.search).get('ronda')) || 45_000
+// (?ronda=1000 no endereço encurta a ronda: é o gancho usado pelos testes,
+//  e ele só vale em localhost — ver src/engine/ganchos.ts)
+const RONDA_MS = prazoDaRonda(location.search, location.hostname, 'ronda', 45_000)
 // Piso entre duas buscas seguidas, para o foco não virar enxurrada de buscas.
 const PISO_MS = Math.min(10_000, RONDA_MS)
 

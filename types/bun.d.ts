@@ -72,9 +72,18 @@ declare namespace Bun {
     sourcemap?: 'none' | 'linked' | 'inline' | 'external'
   }): Promise<{ success: boolean; outputs: Array<{ path: string }>; logs: unknown[] }>
 
-  // servidor mínimo, usado só pelo simulador de pagamento
+  // servidor mínimo, usado só pelo simulador de pagamento e pelo ensaio do freio
   function serve(config: {
     port?: number
     fetch(req: Request): Response | Promise<Response>
-  }): { port: number; stop(): void }
+  }): { port: number; stop(fechaAbertas?: boolean): void }
+
+  // leitura de arquivo, usada pelos ensaios para ler a própria função de borda
+  function file(caminho: string): { text(): Promise<string> }
+
+  // transpilador, usado pela conferência de sintaxe das funções de borda
+  class Transpiler {
+    constructor(config: { loader: 'ts' | 'tsx' | 'js' | 'jsx' })
+    transformSync(codigo: string): string
+  }
 }

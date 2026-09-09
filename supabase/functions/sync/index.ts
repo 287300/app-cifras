@@ -129,6 +129,108 @@ function daPessoa(row: { dono?: string | null } | null, email: string): boolean 
   return !row.dono || row.dono === email
 }
 
+/**
+ * O recado de fora é sempre o mesmo (achado S9 da auditoria de 04/09).
+ *
+ * O erro cru do banco ("banco respondeu 500") entrega detalhe de infraestrutura
+ * a quem estiver sondando, e não diz nada de útil a quem só quer usar o app. O
+ * detalhe fica no log, que é onde ele serve para alguma coisa.
+ */
+function falhaNossa(e: unknown, onde: string, origin: string): Response {
+  console.error('sync/' + onde + ':', e instanceof Error ? e.message : e)
+  return json({ error: 'a nuvem não respondeu agora. Tente de novo em alguns minutos.' }, 502, origin)
+}
+
+/**
+ * Quantos conjuntos esta conta já tem guardados (achado S6 da auditoria de
+ * 04/09).
+ *
+ * O `id` de um conjunto é sorteado NO APARELHO, e cada id novo vira uma linha
+ * nova de até 2 MB. Sem teto, um assinante sozinho grava linhas sem fim, e a
+ * conta de armazenamento não tem onde parar.
+ *
+ * O teto é generoso de propósito: um conjunto é um segredo de pareamento, e a
+ * vida inteira de uma pessoa cabe em um ou dois. Cinco só é alcançado por quem
+ * refez o pareamento várias vezes, e mesmo esse continua podendo usar o app.
+ */
+const MAX_CONJUNTOS = 5
+
+async function conjuntosDe(email: string): Promise<number> {
+  const url = `${REST}?dono=eq.${encodeURIComponent(email)}&select=id&limit=${MAX_CONJUNTOS + 1}`
+  const res = await fetch(url, { headers: HEADERS })
+  if (!res.ok) throw new Error('banco respondeu ' + res.status)
+  return ((await res.json()) as Array<{ id: string }>).length
+}
+
+
+/** Nome desta função nas chaves de contagem do freio. */
+const FUNCAO = 'sync'
+/** Tetos do freio: por conta e por endereço, no minuto e no dia. */
+const TETO_CONTA = { minuto: 90, dia: 12000 }
+const TETO_ENDERECO = { minuto: 180, dia: 20000 }
+
+// <<< freio-de-mao
+// O FREIO DE MÃO (achado S4 da auditoria de 04/09/2026).
+//
+// Nenhuma das quatro funções tinha limite próprio. A chave pública do app está
+// publicada dentro do `app.js`, que é um arquivo aberto na internet, e com ela
+// um laço de duas linhas gera invocação, tráfego e chamada ao servidor de
+// contas sem nada freando. A conta é paga, e quem paga é o Eder.
+//
+// Duas contagens, porque elas resolvem problemas diferentes:
+//
+//   - POR MINUTO barra a rajada, que é o formato de um laço;
+//   - POR DIA barra o gotejamento, que é o formato de quem lê o limite por
+//     minuto e resolve ficar logo abaixo dele o dia inteiro.
+//
+// E duas chaves: por ENDEREÇO, conferida antes de qualquer trabalho, para uma
+// enxurrada anônima não queimar nem a chamada ao servidor de contas; e por
+// CONTA, depois de saber quem é, porque endereço se troca e conta não.
+//
+// FALHA ABERTA, de propósito. Se o banco não responder, o pedido passa. Um
+// problema nosso não pode virar "muitos pedidos" na cara de quem está pagando e
+// só quer abrir o show. O freio protege a fatura; ele não é a tranca da porta,
+// que é o crachá.
+const FREIO_URL = BASE + '/rest/v1/rpc/registra_uso'
+
+/** De qual endereço veio o pedido, para efeito de contagem. */
+function deOndeVeio(req: Request): string {
+  const cadeia = req.headers.get('x-forwarded-for') ?? ''
+  const primeiro = (cadeia.split(',')[0] ?? '').trim()
+  return primeiro || 'sem-endereco'
+}
+
+/**
+ * Conta este pedido e diz se ele passou de algum dos dois tetos.
+ *
+ * O balde de tempo entra na própria chave, então cada janela nova é uma chave
+ * nova: nada precisa ser zerado e não há relógio para acertar.
+ */
+async function passouDoTeto(quem: string, porMinuto: number, porDia: number): Promise<boolean> {
+  const agora = Date.now()
+  const minuto = `${FUNCAO}:m:${quem}:${Math.floor(agora / 60_000)}`
+  const dia = `${FUNCAO}:d:${quem}:${Math.floor(agora / 86_400_000)}`
+  try {
+    const res = await fetch(FREIO_URL, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ p_chave_minuto: minuto, p_chave_dia: dia }),
+    })
+    if (!res.ok) return false
+    const conta = (await res.json()) as number[] | null
+    const noMinuto = conta?.[0] ?? 0
+    const noDia = conta?.[1] ?? 0
+    return noMinuto > porMinuto || noDia > porDia
+  } catch {
+    return false
+  }
+}
+
+/** A recusa do freio, em português e sem número de erro. */
+function freado(origin: string): Response {
+  return json({ error: 'Muitos pedidos seguidos. Espere um minuto e tente de novo.' }, 429, origin)
+}
+// >>> freio-de-mao
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin') ?? ''
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(origin) })
@@ -145,6 +247,10 @@ Deno.serve(async (req: Request) => {
   // Portaria única, antes de qualquer operação: sem crachá válido e assinatura
   // em dia, a nuvem não grava nem devolve nada. Vale igual para pull, push e
   // para os dois lados do código de 6 números.
+  // Freio pelo ENDEREÇO antes de qualquer trabalho: uma enxurrada anônima não
+  // pode nem chegar a queimar a chamada ao servidor de contas
+  if (await passouDoTeto(deOndeVeio(req), TETO_ENDERECO.minuto, TETO_ENDERECO.dia)) return freado(origin)
+
   const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
   let email: string | null
   try {
@@ -155,6 +261,8 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'não deu para conferir sua conta agora' }, 502, origin)
   }
   if (!email) return json({ error: 'entre na sua conta primeiro' }, 401, origin)
+  // e agora pela CONTA, que é o que não se troca trocando de rede
+  if (await passouDoTeto('conta:' + email, TETO_CONTA.minuto, TETO_CONTA.dia)) return freado(origin)
   try {
     if (!(await estaPagando(email))) {
       return json({ error: 'sincronizar entre aparelhos é recurso da assinatura' }, 402, origin)
@@ -162,7 +270,7 @@ Deno.serve(async (req: Request) => {
   } catch (e) {
     // banco fora do ar não é assinatura vencida: quem paga não pode ver
     // "assine" por causa de um problema nosso
-    return json({ error: e instanceof Error ? e.message : 'falhou' }, 502, origin)
+    return falhaNossa(e, 'assinatura', origin)
   }
 
   const PAIR = BASE + '/rest/v1/pair_codes'
@@ -213,7 +321,7 @@ Deno.serve(async (req: Request) => {
       }
       return json({ payload: row.payload }, 200, origin)
     } catch (e) {
-      return json({ error: e instanceof Error ? e.message : 'falhou' }, 502, origin)
+      return falhaNossa(e, 'pareamento', origin)
     }
   }
 
@@ -237,6 +345,17 @@ Deno.serve(async (req: Request) => {
 
       const cur = await getRow(id)
       if (!daPessoa(cur, email)) return json({ error: 'esta cópia é de outra conta' }, 403, origin)
+      // Linha NOVA passa pelo teto de conjuntos; regravar uma que já existe
+      // não cria linha nenhuma e por isso não conta. 507 e não 403: 403 o app
+      // lê como "entre na sua conta", e mandar a pessoa fazer login para
+      // resolver um limite de armazenamento é o pior recado possível.
+      if (!cur && (await conjuntosDe(email)) >= MAX_CONJUNTOS) {
+        return json(
+          { error: `Este e-mail já tem ${MAX_CONJUNTOS} conjuntos guardados na nuvem. Use o código de outro aparelho para entrar num que já existe.` },
+          507,
+          origin
+        )
+      }
       if (cur && Math.abs(Date.parse(cur.updated_at) - base) > 1500) {
         // a nuvem mudou desde a última vista deste aparelho: devolve para mesclar
         return json(
@@ -259,6 +378,6 @@ Deno.serve(async (req: Request) => {
 
     return json({ error: 'use op=pull ou op=push' }, 400, origin)
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : 'falhou' }, 502, origin)
+    return falhaNossa(e, body.op ?? 'sem-op', origin)
   }
 })

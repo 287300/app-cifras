@@ -12,10 +12,14 @@ cifrapronta.com.br. TypeScript puro, sem dependências, PWA instalável que func
   `web/` ou `scripts/` e rode `bun run scripts/build.ts`.
 - Depois de qualquer mudança: `bunx tsc -p tsconfig.json`, `bun test`, `bun run scripts/build.ts`,
   `node scripts/smoke.mjs`, e commite `docs/` junto.
+- Mexeu em `supabase/functions/`: rode também `bun run scripts/ensaio-freio.ts`. O freio de mão é
+  copiado nas quatro funções, e `src/engine/freio.test.ts` quebra se uma delas andar sozinha.
 - A fumaça precisa de `show-30-08.json` na raiz (gitignorado). Como recriá-lo está no doc
   "Patch de 04-09" do projeto.
 - O registro npm, o pypi e as CDNs são bloqueados no sandbox, e `git push` para o GitHub também.
-  Publicar é um pipeline próprio: veja "Como publicar o app" no projeto.
+  Mas `git fetch` e `git ls-remote` FUNCIONAM: depois de um push confirmado, `git fetch origin main`
+  e `git reset --hard FETCH_HEAD` realinham os identificadores. Publicar é um pipeline próprio:
+  veja "Publicar pelo caminho curto" no projeto.
 
 ## Duas regras que mandam em tudo
 

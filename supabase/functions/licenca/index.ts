@@ -77,6 +77,75 @@ async function assinaturaDe(email: string): Promise<Assinatura | null> {
   return linhas[0] ?? null
 }
 
+
+/** Nome desta função nas chaves de contagem do freio. */
+const FUNCAO = 'licenca'
+/** Tetos do freio: por conta e por endereço, no minuto e no dia. */
+const TETO_CONTA = { minuto: 30, dia: 400 }
+const TETO_ENDERECO = { minuto: 60, dia: 900 }
+
+// <<< freio-de-mao
+// O FREIO DE MÃO (achado S4 da auditoria de 04/09/2026).
+//
+// Nenhuma das quatro funções tinha limite próprio. A chave pública do app está
+// publicada dentro do `app.js`, que é um arquivo aberto na internet, e com ela
+// um laço de duas linhas gera invocação, tráfego e chamada ao servidor de
+// contas sem nada freando. A conta é paga, e quem paga é o Eder.
+//
+// Duas contagens, porque elas resolvem problemas diferentes:
+//
+//   - POR MINUTO barra a rajada, que é o formato de um laço;
+//   - POR DIA barra o gotejamento, que é o formato de quem lê o limite por
+//     minuto e resolve ficar logo abaixo dele o dia inteiro.
+//
+// E duas chaves: por ENDEREÇO, conferida antes de qualquer trabalho, para uma
+// enxurrada anônima não queimar nem a chamada ao servidor de contas; e por
+// CONTA, depois de saber quem é, porque endereço se troca e conta não.
+//
+// FALHA ABERTA, de propósito. Se o banco não responder, o pedido passa. Um
+// problema nosso não pode virar "muitos pedidos" na cara de quem está pagando e
+// só quer abrir o show. O freio protege a fatura; ele não é a tranca da porta,
+// que é o crachá.
+const FREIO_URL = BASE + '/rest/v1/rpc/registra_uso'
+
+/** De qual endereço veio o pedido, para efeito de contagem. */
+function deOndeVeio(req: Request): string {
+  const cadeia = req.headers.get('x-forwarded-for') ?? ''
+  const primeiro = (cadeia.split(',')[0] ?? '').trim()
+  return primeiro || 'sem-endereco'
+}
+
+/**
+ * Conta este pedido e diz se ele passou de algum dos dois tetos.
+ *
+ * O balde de tempo entra na própria chave, então cada janela nova é uma chave
+ * nova: nada precisa ser zerado e não há relógio para acertar.
+ */
+async function passouDoTeto(quem: string, porMinuto: number, porDia: number): Promise<boolean> {
+  const agora = Date.now()
+  const minuto = `${FUNCAO}:m:${quem}:${Math.floor(agora / 60_000)}`
+  const dia = `${FUNCAO}:d:${quem}:${Math.floor(agora / 86_400_000)}`
+  try {
+    const res = await fetch(FREIO_URL, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ p_chave_minuto: minuto, p_chave_dia: dia }),
+    })
+    if (!res.ok) return false
+    const conta = (await res.json()) as number[] | null
+    const noMinuto = conta?.[0] ?? 0
+    const noDia = conta?.[1] ?? 0
+    return noMinuto > porMinuto || noDia > porDia
+  } catch {
+    return false
+  }
+}
+
+/** A recusa do freio, em português e sem número de erro. */
+function freado(origin: string): Response {
+  return json({ error: 'Muitos pedidos seguidos. Espere um minuto e tente de novo.' }, 429, origin)
+}
+// >>> freio-de-mao
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin') ?? ''
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(origin) })
@@ -91,11 +160,15 @@ Deno.serve(async (req: Request) => {
   }
   if (body.op && body.op !== 'consultar') return json({ error: 'use op=consultar' }, 400, origin)
 
+  // freio pelo endereço antes de tudo, e pela conta assim que se sabe quem é
+  if (await passouDoTeto(deOndeVeio(req), TETO_ENDERECO.minuto, TETO_ENDERECO.dia)) return freado(origin)
+
   const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
 
   try {
     const email = await quemE(token)
     if (!email) return json({ error: 'entre na sua conta primeiro' }, 401, origin)
+    if (await passouDoTeto('conta:' + email, TETO_CONTA.minuto, TETO_CONTA.dia)) return freado(origin)
 
     const linha = await assinaturaDe(email)
     if (!linha || linha.plano !== 'pago') {
@@ -108,6 +181,12 @@ Deno.serve(async (req: Request) => {
     if (restamMs === 0) return json({ plano: 'gratis', restamMs: 0, renova: linha.renova }, 200, origin)
     return json({ plano: 'pago', restamMs, renova: linha.renova }, 200, origin)
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : 'falhou' }, 502, origin)
+    // O RECADO DE FORA É SEMPRE O MESMO (achado S9 da auditoria de 04/09). O
+    // erro cru do banco ("banco respondeu 500") entrega detalhe de
+    // infraestrutura a quem estiver sondando, e não diz nada de útil a quem só
+    // quer usar o app. O detalhe fica no log, que é onde ele serve para alguma
+    // coisa.
+    console.error('licenca:', e instanceof Error ? e.message : e)
+    return json({ error: 'não deu para conferir sua assinatura agora' }, 502, origin)
   }
 })

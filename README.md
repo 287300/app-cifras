@@ -28,6 +28,7 @@ Sem dependências externas: o código é TypeScript puro, empacotado com o Bun.
 - `bun run scripts/build.ts` gera o app pronto em `docs/`
 - `python3 scripts/icons.py` regenera os ícones
 - `node scripts/smoke.mjs` roda o teste de fumaça no Chromium (fluxo completo, incluindo modo avião)
+- `bun run scripts/ensaio-freio.ts` roda a função de licença de verdade contra um Supabase de mentira e confere o freio das funções de borda
 
 A pasta `docs/` é o site publicado (GitHub Pages serve `main` em `/docs`).
 Depois de qualquer mudança: rodar testes, build e commitar `docs/` junto.

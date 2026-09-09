@@ -17,6 +17,7 @@
 
 import { contaAtual, onContaChange, tokenDeAcesso } from './conta.ts'
 import { db } from './db.ts'
+import { prazoDaRonda } from './engine/ganchos.ts'
 import { precisaConsultar, textoDoAviso } from './engine/consulta.ts'
 import { planoEfetivo, type Licenca, type Plano } from './engine/licenca.ts'
 import { FUNCOES, SUPABASE_ANON } from './supabase.ts'
@@ -25,7 +26,7 @@ import { noPalcoAgora } from './router.ts'
 const FN = FUNCOES + '/licenca'
 const CHAVE = 'licenca'
 /** De quanto em quanto tempo o app aberto reconfere sozinho. */
-const RONDA_MS = Number(new URLSearchParams(location.search).get('rondaLic')) || 6 * 60 * 60_000
+const RONDA_MS = prazoDaRonda(location.search, location.hostname, 'rondaLic', 6 * 60 * 60_000)
 
 const SEM_CONTA: Licenca = { plano: 'gratis', validaAte: 0, conferidaEm: 0 }
 /** Prazo para o servidor responder. Wi-fi de casa de show aceita e não responde. */

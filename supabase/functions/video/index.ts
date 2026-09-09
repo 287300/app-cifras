@@ -44,6 +44,11 @@ function json(data: unknown, status: number, origin: string): Response {
 
 const BASE = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+const HEADERS = {
+  apikey: SERVICE,
+  Authorization: 'Bearer ' + SERVICE,
+  'Content-Type': 'application/json',
+}
 
 /** Quem é o dono deste crachá, segundo o servidor de contas. Null se não vale. */
 async function quemE(token: string): Promise<string | null> {
@@ -55,6 +60,38 @@ async function quemE(token: string): Promise<string | null> {
   const u = (await res.json()) as { email?: string }
   const email = (u.email ?? '').trim().toLowerCase()
   return email || null
+}
+
+/** Teto de leitura da página do YouTube (achado S10 da auditoria de 04/09). */
+const MAX_BYTES = 600_000
+
+/**
+ * Lê a resposta até um teto de bytes e para.
+ *
+ * `res.text()` lê o que vier: uma resposta gigante de um motor de busca comeria
+ * a memória da função. O teto vale para todas as leituras, não só para a página
+ * de cifra.
+ */
+async function textoLimitado(res: Response, max: number): Promise<string> {
+  const reader = res.body?.getReader()
+  if (!reader) return ''
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (total < max) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    total += value.byteLength
+  }
+  void reader.cancel().catch(() => undefined)
+  const buf = new Uint8Array(total)
+  let off = 0
+  for (const c of chunks) {
+    buf.set(c.subarray(0, Math.min(c.byteLength, total - off)), off)
+    off += c.byteLength
+    if (off >= total) break
+  }
+  return new TextDecoder('utf-8').decode(buf)
 }
 
 function unescapeJson(s: string): string {
@@ -102,11 +139,84 @@ function extractHits(html: string): Hit[] {
   return hits
 }
 
+
+/** Nome desta função nas chaves de contagem do freio. */
+const FUNCAO = 'video'
+/** Tetos do freio: por conta e por endereço, no minuto e no dia. */
+const TETO_CONTA = { minuto: 20, dia: 200 }
+const TETO_ENDERECO = { minuto: 40, dia: 400 }
+
+// <<< freio-de-mao
+// O FREIO DE MÃO (achado S4 da auditoria de 04/09/2026).
+//
+// Nenhuma das quatro funções tinha limite próprio. A chave pública do app está
+// publicada dentro do `app.js`, que é um arquivo aberto na internet, e com ela
+// um laço de duas linhas gera invocação, tráfego e chamada ao servidor de
+// contas sem nada freando. A conta é paga, e quem paga é o Eder.
+//
+// Duas contagens, porque elas resolvem problemas diferentes:
+//
+//   - POR MINUTO barra a rajada, que é o formato de um laço;
+//   - POR DIA barra o gotejamento, que é o formato de quem lê o limite por
+//     minuto e resolve ficar logo abaixo dele o dia inteiro.
+//
+// E duas chaves: por ENDEREÇO, conferida antes de qualquer trabalho, para uma
+// enxurrada anônima não queimar nem a chamada ao servidor de contas; e por
+// CONTA, depois de saber quem é, porque endereço se troca e conta não.
+//
+// FALHA ABERTA, de propósito. Se o banco não responder, o pedido passa. Um
+// problema nosso não pode virar "muitos pedidos" na cara de quem está pagando e
+// só quer abrir o show. O freio protege a fatura; ele não é a tranca da porta,
+// que é o crachá.
+const FREIO_URL = BASE + '/rest/v1/rpc/registra_uso'
+
+/** De qual endereço veio o pedido, para efeito de contagem. */
+function deOndeVeio(req: Request): string {
+  const cadeia = req.headers.get('x-forwarded-for') ?? ''
+  const primeiro = (cadeia.split(',')[0] ?? '').trim()
+  return primeiro || 'sem-endereco'
+}
+
+/**
+ * Conta este pedido e diz se ele passou de algum dos dois tetos.
+ *
+ * O balde de tempo entra na própria chave, então cada janela nova é uma chave
+ * nova: nada precisa ser zerado e não há relógio para acertar.
+ */
+async function passouDoTeto(quem: string, porMinuto: number, porDia: number): Promise<boolean> {
+  const agora = Date.now()
+  const minuto = `${FUNCAO}:m:${quem}:${Math.floor(agora / 60_000)}`
+  const dia = `${FUNCAO}:d:${quem}:${Math.floor(agora / 86_400_000)}`
+  try {
+    const res = await fetch(FREIO_URL, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ p_chave_minuto: minuto, p_chave_dia: dia }),
+    })
+    if (!res.ok) return false
+    const conta = (await res.json()) as number[] | null
+    const noMinuto = conta?.[0] ?? 0
+    const noDia = conta?.[1] ?? 0
+    return noMinuto > porMinuto || noDia > porDia
+  } catch {
+    return false
+  }
+}
+
+/** A recusa do freio, em português e sem número de erro. */
+function freado(origin: string): Response {
+  return json({ error: 'Muitos pedidos seguidos. Espere um minuto e tente de novo.' }, 429, origin)
+}
+// >>> freio-de-mao
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin') ?? ''
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(origin) })
   if (!ALLOWED_ORIGINS.has(origin)) return json({ error: 'origem não autorizada' }, 403, origin)
   if (req.method !== 'GET') return json({ error: 'somente GET' }, 405, origin)
+
+  // freio pelo endereço antes da chamada ao servidor de contas, e pela conta
+  // logo depois de saber quem é
+  if (await passouDoTeto(deOndeVeio(req), TETO_ENDERECO.minuto, TETO_ENDERECO.dia)) return freado(origin)
 
   const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
   let quem: string | null
@@ -116,6 +226,8 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'não deu para conferir sua conta agora' }, 502, origin)
   }
   if (!quem) return json({ error: 'entre na sua conta primeiro' }, 401, origin)
+
+  if (await passouDoTeto('conta:' + quem, TETO_CONTA.minuto, TETO_CONTA.dia)) return freado(origin)
 
   const q = (new URL(req.url).searchParams.get('q') ?? '').trim().slice(0, 120)
   if (q.length < 2) return json({ error: 'busca vazia' }, 400, origin)
@@ -130,12 +242,14 @@ Deno.serve(async (req: Request) => {
         signal: ctrl.signal,
       })
       if (!res.ok) throw new Error('youtube respondeu ' + res.status)
-      html = await res.text()
+      html = await textoLimitado(res, MAX_BYTES)
     } finally {
       clearTimeout(timer)
     }
     return json({ hits: extractHits(html) }, 200, origin)
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : 'falhou' }, 502, origin)
+    // mesmo motivo do S9 na cifra: nem número, nem nome de serviço de fora
+    console.error('video:', e instanceof Error ? e.message : e)
+    return json({ error: 'Não deu para buscar o vídeo agora. Tente de novo em alguns minutos.' }, 502, origin)
   }
 })
