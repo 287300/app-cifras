@@ -14,6 +14,18 @@
 //      pode virar "muitos pedidos" na cara de quem está pagando e só quer abrir
 //      o show.
 //
+// O QUE A JANELA FIXA NÃO PEGA, e é de propósito. O balde de tempo entra na
+// chave, então ele vira na virada do minuto. Quem disparar 40 pedidos às
+// 10:00:59 e mais 40 às 10:01:01 faz 80 em dois segundos sem tomar 429: são dois
+// baldes. Isso apareceu na prova em produção de 09/09, quando a rajada caiu
+// justamente na virada e nenhum dos dois baldes passou do teto.
+//
+// Fica assim porque o teto por minuto não é o que protege a fatura: quem protege
+// é o teto POR DIA, que não tem virada para explorar. O do minuto existe para
+// cortar o laço na primeira rajada, e cortar em 80 em vez de 40 uma vez a cada
+// hora não muda nada na conta do fim do mês. Janela deslizante custaria mais
+// idas ao banco em TODO pedido, inclusive nos legítimos.
+//
 // Roda com: bun run scripts/ensaio-freio.ts
 
 const PORTA_SUPABASE = 8791
