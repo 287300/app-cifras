@@ -53,6 +53,29 @@ export function parseHash(hash: string): Route {
   }
 }
 
+/**
+ * A pessoa está tocando AGORA?
+ *
+ * Esta é a regra mais crítica do app: enquanto ela devolve `true`, nada de
+ * conta, licença ou sincronização pode mexer na tela. Ela morava copiada em
+ * `src/licenca.ts` (`noPalco`) e em `src/sync.ts` (`inPlay`), com dois nomes e
+ * dois idiomas, as duas escritas como `hash.startsWith('#/play')`. Duas cópias
+ * de uma regra dessas é uma cópia esperando para ficar para trás.
+ *
+ * Agora quem responde é o mesmo `parseHash` que decide a tela, então a resposta
+ * não tem como divergir do que o músico está vendo. De quebra ele acerta dois
+ * casos que o `startsWith` errava: `#/play` sem show cai na lista de shows (não
+ * é palco), e um futuro `#/playlist` não passaria a congelar o app por engano.
+ */
+export function noPalco(hash: string): boolean {
+  return parseHash(hash).name === 'play'
+}
+
+/** A mesma pergunta, sobre a tela de agora. Assim como `currentRoute`. */
+export function noPalcoAgora(): boolean {
+  return noPalco(location.hash)
+}
+
 export function routePath(route: Route): string {
   switch (route.name) {
     case 'shows':

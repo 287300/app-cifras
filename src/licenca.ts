@@ -20,6 +20,7 @@ import { db } from './db.ts'
 import { precisaConsultar, textoDoAviso } from './engine/consulta.ts'
 import { planoEfetivo, type Licenca, type Plano } from './engine/licenca.ts'
 import { FUNCOES, SUPABASE_ANON } from './supabase.ts'
+import { noPalcoAgora } from './router.ts'
 
 const FN = FUNCOES + '/licenca'
 const CHAVE = 'licenca'
@@ -72,10 +73,6 @@ function notify(): void {
 export function onLicencaChange(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
-}
-
-function noPalco(): boolean {
-  return location.hash.startsWith('#/play')
 }
 
 /** O plano que vale AGORA para efeito de limites. */
@@ -147,7 +144,7 @@ async function guarda(nova: Licenca, userId: string): Promise<void> {
  * mas NUNCA pula a regra de palco: nem forçando o app mexe no meio do show.
  */
 export async function consultaAgora(forcar = false): Promise<void> {
-  if (noPalco()) {
+  if (noPalcoAgora()) {
     pendente = true
     return
   }
@@ -186,7 +183,7 @@ export async function consultaAgora(forcar = false): Promise<void> {
     if (!res.ok) return // 401, servidor fora, portal de wi-fi: mantém o que já valia
     const data = (await res.json()) as { plano?: string; restamMs?: number; renova?: boolean }
     if (contaAtual()?.userId !== perguntou) return // trocou de conta na espera
-    if (noPalco()) {
+    if (noPalcoAgora()) {
       // o show começou enquanto a resposta vinha: nada muda agora
       pendente = true
       return
@@ -254,7 +251,7 @@ export async function initLicenca(): Promise<void> {
   onContaChange(() => {
     // no palco nem isto acontece: uma renovação de crachá recusada no meio do
     // show não pode rebaixar o plano entre uma música e outra
-    if (noPalco()) {
+    if (noPalcoAgora()) {
       pendente = true
       return
     }
@@ -294,7 +291,7 @@ export async function initLicenca(): Promise<void> {
   window.addEventListener('online', () => void consultaAgora())
   window.addEventListener('hashchange', () => {
     // saiu do palco: a pergunta que ficou esperando pode acontecer agora
-    if (pendente && !noPalco()) {
+    if (pendente && !noPalcoAgora()) {
       pendente = false
       // pergunta adiada pela regra de palco é dívida: zera só o piso de tempo,
       // para o show não engolir a chance do dia, mas mantém o resto da régua

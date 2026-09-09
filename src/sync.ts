@@ -21,6 +21,7 @@
 import { contaAtual, onContaChange, tokenDeAcesso } from './conta.ts'
 import { db } from './db.ts'
 import { onLicencaChange, planoAtual } from './licenca.ts'
+import { noPalcoAgora } from './router.ts'
 import { store } from './store.ts'
 import { FUNCOES, SUPABASE_ANON } from './supabase.ts'
 import { bloqueioDaSincronizacao, bloqueioDoServidor, textoDoBloqueio, type Bloqueio } from './engine/sincronizacao.ts'
@@ -124,10 +125,6 @@ async function saveKv(): Promise<void> {
   if (kv) await db.putKv('sync', kv)
 }
 
-function inPlay(): boolean {
-  return location.hash.startsWith('#/play')
-}
-
 function serialize(): string {
   // sem os ajustes: fonte de palco é por aparelho, não viaja
   return JSON.stringify({
@@ -212,7 +209,7 @@ async function applyRemote(packed: string, updatedAt: number): Promise<void> {
 export async function pullNow(): Promise<void> {
   if (!kv?.enabled || !cryptoKey || busy) return
   if (!navigator.onLine) return
-  if (inPlay()) {
+  if (noPalcoAgora()) {
     pendingPull = true
     return
   }
@@ -320,7 +317,7 @@ function ligaRonda(): void {
   if (bloqueioAtual() !== 'nenhum') return // parada por conta ou plano: não fica batendo à toa
   ronda = setInterval(() => {
     if (document.visibilityState !== 'visible') return
-    if (inPlay()) return // no palco ninguém mexe na tela
+    if (noPalcoAgora()) return // no palco ninguém mexe na tela
     void pullNow()
   }, RONDA_MS)
 }
@@ -462,7 +459,7 @@ function reavalia(): void {
     paraRonda()
     return
   }
-  if (!kv?.enabled || inPlay()) return // no palco ninguém mexe na tela
+  if (!kv?.enabled || noPalcoAgora()) return // no palco ninguém mexe na tela
   ligaRonda()
   void pullNow()
 }
@@ -513,7 +510,7 @@ export async function initSync(): Promise<void> {
   window.addEventListener('focus', pullSePassouTempo)
   window.addEventListener('online', () => void pullNow())
   window.addEventListener('hashchange', () => {
-    if (pendingPull && !inPlay()) {
+    if (pendingPull && !noPalcoAgora()) {
       pendingPull = false
       void pullNow()
     }

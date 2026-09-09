@@ -10,7 +10,9 @@
 //
 // 1. Recusa NÃO é desligar. Quem para de pagar mantém a chave do conjunto
 //    guardada no aparelho; a sincronização fica parada, não apagada. No dia em
-//    que voltar a pagar, volta sozinha, sem parear os aparelhos de novo.
+//    que voltar a pagar, volta sozinha, sem parear os aparelhos de novo. Quem
+//    cumpre isso é `reavalia()` em `src/sync.ts`; aqui só mora a decisão de
+//    quem pode.
 //
 // 2. Recusa vira frase, não erro. "nuvem respondeu 402" não é recado para
 //    ninguém. Cada recusa tem uma frase que diz o que aconteceu e o que fazer.
@@ -29,10 +31,6 @@ export function bloqueioDaSincronizacao(s: Situacao): Bloqueio {
   if (!s.temConta) return 'sem-conta'
   if (s.plano !== 'pago') return 'sem-plano'
   return 'nenhum'
-}
-
-export function podeSincronizar(s: Situacao): boolean {
-  return bloqueioDaSincronizacao(s) === 'nenhum'
 }
 
 /**
@@ -62,16 +60,4 @@ export function textoDoBloqueio(b: Bloqueio): string | null {
 /** O motivo que abre a folha de assinatura, na voz de quem está sendo barrado. */
 export function motivoParaAssinar(): string {
   return 'A sincronização mantém as mesmas músicas no iPad e no celular, cada mudança aparecendo no outro sozinha.'
-}
-
-/**
- * Um aparelho que ficou parado por falta de plano volta sozinho?
- *
- * Volta, e é isto que separa "parado" de "desligado": enquanto a chave do
- * conjunto continuar guardada, voltar a pagar basta. Sem a chave seria preciso
- * parear os aparelhos de novo, e ninguém deveria pagar duas vezes pelo mesmo
- * trabalho.
- */
-export function voltaSozinho(tinhaChave: boolean, agoraPode: boolean): boolean {
-  return tinhaChave && agoraPode
 }
