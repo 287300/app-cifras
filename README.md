@@ -36,8 +36,13 @@ Depois de qualquer mudança: rodar testes, build e commitar `docs/` junto.
 
 Todo o conhecimento musical (ler cifra colada, transpor, montar acordes,
 desenhar shapes) vive em `src/engine/` como funções puras testadas; as telas
-em `src/ui/` apenas mostram; os dados ficam no IndexedDB do próprio iPad
-(`src/db.ts` e `src/store.ts`), sem servidor.
+em `src/ui/` apenas mostram; as músicas ficam no IndexedDB do próprio aparelho
+(`src/db.ts` e `src/store.ts`).
+
+O servidor (Supabase) entra só para conta, licença e sincronização, e nunca
+para tocar: com a rota `#/play` aberta o app não pergunta nada a ninguém, e a
+biblioteca inteira funciona em modo avião. O conteúdo que sobe para sincronizar
+vai cifrado ponta a ponta — o servidor guarda, não lê.
 
 ## Publicação a partir do ambiente Claude
 

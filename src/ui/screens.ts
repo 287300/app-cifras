@@ -11,8 +11,8 @@ import { codigoCompleto, codigoMorreu, normalizaCodigo, sugestaoDeEmail } from '
 import { motivoParaAssinar, textoDoBloqueio } from '../engine/sincronizacao.ts'
 import { parseCifra } from '../engine/parse.ts'
 import { extractImportHeader } from '../engine/importHeader.ts'
-import { guessTom } from '../engine/guessTom.ts'
-import { transposeKey, parseKey } from '../engine/notes.ts'
+import { melhorTom } from '../engine/guessTom.ts'
+import { transposeKey, parseKey, TONS } from '../engine/notes.ts'
 import { fetchCifraFromUrl, searchCifras, type FetchedCifra, type SearchHit } from '../importer.ts'
 import { pescaVideo } from '../autovideo.ts'
 import { navigate, type Route } from '../router.ts'
@@ -144,8 +144,6 @@ function folhaDeAssinatura(motivo: string): void {
   )
 }
 
-const TOM_OPTIONS = ['C', 'C#', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B', 'Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm']
-
 /**
  * Colagem esperta: se o texto vier do botão de importar (cabeçalho
  * "Música:/Artista:"), preenche os campos vazios e deixa só a cifra no corpo;
@@ -196,8 +194,8 @@ function searchBlock(initial = ''): HTMLElement {
 function tomSelect(value: string): HTMLSelectElement {
   const sel = h('select', null) as HTMLSelectElement
   sel.append(h('option', { value: '' }, 'Tom…'))
-  for (const t of TOM_OPTIONS) sel.append(h('option', { value: t, selected: t === value }, t))
-  if (value && !TOM_OPTIONS.includes(value)) sel.append(h('option', { value, selected: true }, value))
+  for (const t of TONS) sel.append(h('option', { value: t, selected: t === value }, t))
+  if (value && !TONS.includes(value)) sel.append(h('option', { value, selected: true }, value))
   return sel
 }
 
@@ -1487,7 +1485,7 @@ function contaCard(): HTMLElement {
         h(
           'p',
           { className: 'hint', style: { marginBottom: '10px' } },
-          'Entre com o e-mail e pronto: o app manda 6 números para você digitar. Senha não existe aqui, então não tem senha para esquecer.'
+          'Entre com o e-mail e pronto: o app manda um código para você digitar. Senha não existe aqui, então não tem senha para esquecer.'
         ),
         ...formularioDeEntrada(render)
       )
@@ -1776,7 +1774,7 @@ export function portaScreen(aoLiberar: () => void): HTMLElement {
     h(
       'p',
       { className: 'hint', style: { marginBottom: '18px' } },
-      'Só o e-mail. Chega um código de 6 números para você digitar, e pronto. Senha não existe aqui, então não tem senha para esquecer.'
+      'Só o e-mail. Chega um código para você digitar, e pronto. Senha não existe aqui, então não tem senha para esquecer.'
     ),
     ...formularioDeEntrada(aoLiberar),
     h(
@@ -1792,7 +1790,7 @@ export function portaScreen(aoLiberar: () => void): HTMLElement {
   content.append(coluna)
   root.append(content)
 
-  // a conta pode chegar por dois caminhos: os 6 números digitados aqui, ou o
+  // a conta pode chegar por dois caminhos: o código digitado aqui, ou o
   // link do e-mail aberto com o app já na tela. Os dois passam por onContaChange
   const solta = onContaChange(() => {
     if (!root.isConnected) {
@@ -1864,14 +1862,6 @@ export function isSkeleton(song: Song): boolean {
   return song.body.includes('COLE A CIFRA AQUI') || song.body.trim() === ''
 }
 
-/** Escolhe o tom: o anunciado pela página, o declarado na cifra ou o adivinhado pelos acordes. */
-function bestTom(fetched: FetchedCifra, fallback: string): string {
-  if (fetched.tom && parseKey(fetched.tom)) return fetched.tom
-  const parsed = parseCifra(fetched.body)
-  if (parsed.tom && parseKey(parsed.tom)) return parsed.tom
-  return guessTom(parsed) ?? fallback
-}
-
 function cifraSnippet(body: string, lines = 14): HTMLElement {
   const text = body.split('\n').slice(0, lines).join('\n')
   const pre = h('pre', {
@@ -1938,7 +1928,7 @@ function inAppSearch(container: HTMLElement, current: Song, onSaved: () => void)
       showError('Essa página não parece ter uma cifra legível. Tente outro resultado.')
       return
     }
-    const tom = bestTom(fetched, current.tom)
+    const tom = melhorTom(fetched.tom, fetched.body, current.tom)
     container.replaceChildren(
       h(
         'div',
@@ -2160,7 +2150,7 @@ export function buscarScreen(showId: string | null): HTMLElement {
     }
     const title = h('input', { value: fetched.title || query.value }) as HTMLInputElement
     const artist = h('input', { value: fetched.artist }) as HTMLInputElement
-    const tom = tomSelect(bestTom(fetched, ''))
+    const tom = tomSelect(melhorTom(fetched.tom, fetched.body))
     const save = async (): Promise<Song> => {
       const nova = await store.addSong({ title: title.value, artist: artist.value, tom: tom.value, body: fetched.body, sourceUrl: fetched.sourceUrl })
       pescaVideo(nova.id)

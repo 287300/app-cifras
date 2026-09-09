@@ -1,11 +1,11 @@
 // A conta da pessoa: entrar pelo e-mail, sem senha nenhuma.
 //
 // Como funciona, na ordem em que a pessoa vive:
-//   1. digita o e-mail  → o servidor manda um e-mail com 6 números e um link;
-//   2. digita os 6 números (ou toca no link) → o aparelho recebe um crachá;
+//   1. digita o e-mail  → o servidor manda um e-mail com um código e um link;
+//   2. digita o código (ou toca no link) → o aparelho recebe um crachá;
 //   3. o crachá fica guardado no aparelho e se renova sozinho, em silêncio.
 //
-// Por que os 6 números e não só o link: no iPad e no iPhone, o app instalado
+// Por que o código e não só o link: no iPad e no iPhone, o app instalado
 // na tela de início é uma "caixa" separada do Safari. O link abre no Safari e
 // deixaria o ícone da tela de início de fora. O código funciona nos dois.
 //

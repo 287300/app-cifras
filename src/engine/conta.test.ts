@@ -121,7 +121,7 @@ describe('recados de erro do servidor', () => {
     // texto exato que o servidor devolve: contém "invalid" e enganava o recado
     const m = mensagemDoErro(400, 'validation_failed', 'Unable to validate email address: invalid format')
     expect(m).toContain('e-mail')
-    expect(m).not.toContain('6 números')
+    expect(m).not.toContain('código')
     expect(mensagemDoErro(400, 'email_address_invalid', 'Email address "x" is invalid')).toContain('e-mail')
   })
 
@@ -133,8 +133,31 @@ describe('recados de erro do servidor', () => {
   test('recusa seca na tela do e-mail não manda conferir número nenhum', () => {
     // proxy de wi-fi de casa de show responde 403 pelo servidor
     const m = mensagemDoErro(403, '', 'Forbidden', 'email')
-    expect(m).not.toContain('6 números')
-    expect(mensagemDoErro(403, '', 'Forbidden', 'codigo')).toContain('6 números')
+    expect(m).not.toContain('código')
+    expect(mensagemDoErro(403, '', 'Forbidden', 'codigo')).toContain('código do e-mail')
+  })
+
+  test('nenhum recado promete um tamanho de código', () => {
+    // O DEFEITO QUE ISTO IMPEDE (achado Spec 10 da revisao de 04/09): o texto
+    // dizia "os 6 numeros do e-mail" enquanto normalizaCodigo ja aceitava de 6
+    // a 10. Se o provedor manda um de 8, a pessoa conta seis, conclui que
+    // recebeu o e-mail errado e fica pedindo outro ate bater no limite de
+    // envios. Quem conta digito e o servidor, nao o recado.
+    const casos: Array<[number, string, string, 'email' | 'codigo' | 'geral']> = [
+      [429, 'over_email_send_rate_limit', 'rate limit', 'geral'],
+      [400, 'otp_expired', 'Email link is invalid or has expired', 'email'],
+      [403, 'otp_expired', 'Token has expired', 'codigo'],
+      [401, 'invalid_credentials', 'x', 'codigo'],
+      [400, 'validation_failed', 'Unable to validate email address', 'email'],
+      [403, '', 'Forbidden', 'email'],
+      [403, '', 'Forbidden', 'codigo'],
+      [0, '', 'Failed to fetch', 'geral'],
+      [500, '', 'boom', 'geral'],
+      [418, 'teapot', 'I am a teapot', 'geral'],
+    ]
+    for (const [status, code, msg, passo] of casos) {
+      expect(mensagemDoErro(status, code, msg, passo)).not.toMatch(/\d+\s*(números|numeros|dígitos|digitos)/i)
+    }
   })
 
   test('erro desconhecido nunca devolve texto em inglês cru', () => {
@@ -155,7 +178,7 @@ describe('o que conta como código queimado', () => {
   test('falta de sinal NÃO queima: o código continua bom', () => {
     // este era o beco sem saída: o wi-fi da casa de show engolia a resposta, o
     // app marcava o código certo como morto e a pessoa tocava em "Entrar" sem
-    // nada acontecer, com os 6 números certos na tela
+    // nada acontecer, com o código certo na tela
     expect(codigoMorreu(0)).toBe(false)
   })
 

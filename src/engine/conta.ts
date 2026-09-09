@@ -162,7 +162,7 @@ export type PassoDaConta = 'email' | 'codigo' | 'geral'
  * A diferença decide se vale a pena tentar o mesmo código de novo, e errar isso
  * custa caro: um wi-fi de casa de show que engole a resposta faria o app marcar
  * como queimado um código que estava perfeito, e a pessoa ficaria tocando em
- * "Entrar" sem nada acontecer, com os 6 números certos na tela.
+ * "Entrar" sem nada acontecer, com o código certo na tela.
  *
  * Só recusa vinda do servidor conta. Falta de sinal (0), tempo esgotado, limite
  * de pedidos (429) e servidor fora do ar (5xx) não dizem nada sobre o código.
@@ -173,6 +173,18 @@ export function codigoMorreu(status: number): boolean {
   return status >= 400
 }
 
+/**
+ * NENHUM recado daqui promete um tamanho de código.
+ *
+ * `normalizaCodigo` aceita de 6 a 10 justamente porque o provedor de e-mail
+ * pode mudar o tamanho sem avisar (foi o ticket 24). Se o texto dissesse "6
+ * números" e chegasse um de 8, a pessoa contaria seis, acharia que recebeu o
+ * e-mail errado e ficaria pedindo outro até bater no limite de envios. O recado
+ * manda conferir O CÓDIGO, e quem conta os dígitos é o servidor.
+ *
+ * O código de PAREAMENTO entre aparelhos é outro: aquele é gerado aqui dentro,
+ * tem 6 sempre, e a tela pode dizer 6 à vontade.
+ */
 export function mensagemDoErro(status: number, code: string, message: string, passo: PassoDaConta = 'geral'): string {
   const texto = (message || '').toLowerCase()
   if (status === 0 || /failed to fetch|network|load failed/.test(texto)) {
@@ -188,19 +200,19 @@ export function mensagemDoErro(status: number, code: string, message: string, pa
     // no passo do e-mail quem venceu foi o LINK, e mandar procurar um código
     // que nunca existiu naquela tentativa só confunde
     return passo === 'email'
-      ? 'Esse link já foi usado ou venceu. Peça um e-mail novo e use o código de 6 números que vem nele.'
+      ? 'Esse link já foi usado ou venceu. Peça um e-mail novo e use o código que vem nele.'
       : 'Esse código venceu. Peça outro e use em até 1 hora.'
   }
   // o recado do e-mail vem ANTES do de código: a recusa do servidor no passo
-  // do e-mail diz "invalid format", e mandar conferir 6 números que ainda nem
-  // foram enviados é o pior recado possível
+  // do e-mail diz "invalid format", e mandar conferir um código que ainda nem
+  // foi enviado é o pior recado possível
   if (code === 'validation_failed' || code === 'email_address_invalid' || /email/.test(texto)) {
     return 'Esse e-mail não foi aceito. Confira se está escrito certo.'
   }
   // recusa seca (403 de proxy de wi-fi, por exemplo) na tela do e-mail não pode
   // mandar conferir número nenhum: ali ainda não existe código
   if ((status === 401 || status === 403 || code === 'invalid_credentials' || /invalid/.test(texto)) && passo !== 'email') {
-    return 'Código errado. Confira os 6 números do e-mail.'
+    return 'Código errado. Confira o código do e-mail e digite de novo.'
   }
   if (status >= 500) {
     return 'O servidor está fora do ar agora. Tente de novo em alguns minutos.'
