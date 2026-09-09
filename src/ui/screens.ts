@@ -222,36 +222,51 @@ export function showsScreen(): HTMLElement {
   )
   root.append(topbar('Shows', { action: [convite(), add] }))
   const content = h('div', { className: 'content' })
-  const shows = store.showList()
-  if (shows.length === 0) {
-    content.append(empty('🎤', 'Nenhum show ainda. Toque em ＋ para criar o primeiro e montar a setlist.'))
-  } else {
-    const list = h('div', { className: 'list' })
-    const trancados = travas().shows
-    for (const show of shows) {
-      const travado = trancados.has(show.id)
-      list.append(
-        h(
-          'button',
-          {
-            className: travado ? 'card travado' : 'card',
-            onClick: () =>
-              travado
-                ? folhaDeAssinatura(`"${show.name}" está aqui inteirinho, só trancado: o plano grátis abre 1 show.`)
-                : navigate({ name: 'show', id: show.id }),
-          },
+
+  // mesma história da biblioteca: a licença chega depois do primeiro desenho,
+  // então a lista precisa saber se redesenhar quando ela chegar
+  const renderList = (): void => {
+    content.replaceChildren()
+    const shows = store.showList()
+    if (shows.length === 0) {
+      content.append(empty('🎤', 'Nenhum show ainda. Toque em ＋ para criar o primeiro e montar a setlist.'))
+    } else {
+      const list = h('div', { className: 'list' })
+      const trancados = travas().shows
+      for (const show of shows) {
+        const travado = trancados.has(show.id)
+        list.append(
           h(
-            'div',
-            { className: 'grow' },
-            h('div', { className: 'title' }, show.name),
-            h('div', { className: 'meta' }, `${formatDate(show.date)} · ${show.items.length} música${show.items.length === 1 ? '' : 's'}`)
-          ),
-          h('span', { className: 'hint' }, travado ? '🔒' : '›')
+            'button',
+            {
+              className: travado ? 'card travado' : 'card',
+              onClick: () =>
+                travado
+                  ? folhaDeAssinatura(`"${show.name}" está aqui inteirinho, só trancado: o plano grátis abre 1 show.`)
+                  : navigate({ name: 'show', id: show.id }),
+            },
+            h(
+              'div',
+              { className: 'grow' },
+              h('div', { className: 'title' }, show.name),
+              h('div', { className: 'meta' }, `${formatDate(show.date)} · ${show.items.length} música${show.items.length === 1 ? '' : 's'}`)
+            ),
+            h('span', { className: 'hint' }, travado ? '🔒' : '›')
+          )
         )
-      )
+      }
+      content.append(list)
     }
-    content.append(list)
   }
+  renderList()
+  const soltaLic = onLicencaChange(() => {
+    if (!root.isConnected) {
+      soltaLic()
+      return
+    }
+    renderList()
+  })
+
   root.append(content)
   return root
 }
@@ -863,6 +878,19 @@ export function libraryScreen(): HTMLElement {
   }
   search.addEventListener('input', renderList)
   renderList()
+
+  // A licença chega DEPOIS do primeiro desenho: o boot não espera a leitura do
+  // banco nem a resposta do servidor. Sem este ouvinte, quem recarregasse o app
+  // parado na biblioteca via tudo destravado até navegar para outra tela — e
+  // ficava assim, porque nada mais redesenhava a lista. Era o defeito Spec 9
+  // voltando pela terceira porta.
+  const soltaLic = onLicencaChange(() => {
+    if (!root.isConnected) {
+      soltaLic()
+      return
+    }
+    renderList()
+  })
 
   content.append(search, list)
   root.append(content)

@@ -88,19 +88,22 @@ export function licencaAtual(): Licenca {
 }
 
 /**
- * Os limites do plano valem agora?
+ * Os limites do plano valem agora? Valem sempre.
  *
- * Só a partir da conta. Sem conta o app não sabe quem é a pessoa, não tem como
- * ela comprar nada e não tem como dar suporte a ela: cobrar teto aí seria
- * cobrar de um desconhecido. Além disso, é o que a especificação pede em
- * "usar o app antes de criar conta, para experimentar sem barreira", e é o que
- * impede que uma biblioteca montada antes de existir plano seja punida.
+ * Isto já dependeu de ter conta, e a justificativa registrada era "usar o app
+ * antes de criar conta, para experimentar sem barreira". O ticket 23 acabou
+ * com o uso anônimo: aparelho novo passa pelo cadastro antes de ver qualquer
+ * tela. A justificativa morreu e a exceção ficou, e o efeito era este: SAIR DA
+ * CONTA virava o botão de plano ilimitado. Sem console, sem DevTools, um toque
+ * em "Sair" no menu Mais.
  *
- * Com conta, os limites valem inteiros: é também o momento em que existe
- * sincronização, compra e suporte.
+ * Quem nunca pagou continua protegido, mas por outro lugar, que é o certo:
+ * `jaFoiPagante` em travadosNoPlano. Uma biblioteca montada antes de existir
+ * plano, ou vinda de um backup, não tranca nada — o teto só impede CRESCER
+ * além de 8, que é exatamente o que limites.ts sempre disse ser a intenção.
  */
 export function limitesValem(): boolean {
-  return contaAtual() !== null
+  return true
 }
 
 /** Esta conta já foi pagante neste aparelho? Decide o que trava ao rebaixar. */
@@ -224,12 +227,24 @@ export async function initLicenca(): Promise<void> {
   try {
     const linha = (await db.getKv(CHAVE))?.value as Guardada | undefined
     if (linha?.userId) guardadaNoDisco = linha
+    // "neste aparelho já houve um pagante" sobrevive a recarregar e a sair da
+    // conta. Sem esta linha, bastava fechar e abrir o app depois de sair para
+    // as excedentes destrancarem de novo (a outra metade do defeito Spec 9).
+    // Quando outra conta entra, o trecho lá embaixo zera de propósito.
+    if (linha?.jaFoiPagante === true) foiPagante = true
     const conta = contaAtual()
     // resposta de outra conta não vale para esta pessoa
     if (linha && conta && linha.userId && linha.userId === conta.userId) {
       adota(linha)
       // a tela já pode estar desenhada com o estado inicial: sem este aviso,
       // quem abre o app em modo avião vê "grátis" mesmo pagando
+      notify()
+    } else if (foiPagante) {
+      // mesmo aviso, pelo motivo oposto: sem conta, mas com histórico de
+      // pagante gravado. A leitura do banco é assíncrona e o boot não espera
+      // por ela, então a biblioteca já foi desenhada COM TUDO ABERTO. Sem este
+      // notify, recarregar o app destravava as excedentes de quem saiu da
+      // conta — e era exatamente esse caso que a fumaça pegou.
       notify()
     }
   } catch {
@@ -245,7 +260,17 @@ export async function initLicenca(): Promise<void> {
     }
     const conta = contaAtual()
     if (!conta) {
-      foiPagante = false
+      // SAIR DA CONTA NÃO APAGA O HISTÓRICO DE PAGAMENTO deste aparelho.
+      //
+      // Zerar `foiPagante` aqui era a segunda metade do defeito Spec 9: mesmo
+      // com os limites valendo sem conta, quem pagou e saiu via as excedentes
+      // destrancarem, porque o app esquecia que ali já tinha havido um
+      // pagante. Sair vira plano ilimitado outra vez, só que pela porta dos
+      // fundos.
+      //
+      // O esquecimento continua existindo, mas no lugar certo: logo abaixo,
+      // quando OUTRA conta entra neste aparelho. Aí sim o histórico da anterior
+      // não vale, porque a pessoa é outra.
       void guarda(SEM_CONTA, '')
       return
     }

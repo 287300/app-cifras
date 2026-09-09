@@ -1505,6 +1505,40 @@ try {
     { timeout: 8000 }
   )
   check('ASSINAR: quem já assina não vê cobrança de novo', true)
+
+  // ---------- sair da conta não é o botão de plano ilimitado (Spec 9) ----------
+  // O aparelho está pagante e com 18 músicas abertas. Sair tem que devolver os
+  // limites do grátis: nada apagado, as excedentes trancadas, e o ＋ parando no
+  // teto. Antes desta correção, "Sair" destravava tudo com um toque.
+  await page.evaluate(() => { location.hash = '#/more' })
+  await page.waitForSelector('button:has-text("Sair da conta")', { timeout: 8000 })
+  await page.click('button:has-text("Sair da conta")')
+  await page.waitForSelector('.confirmbox', { timeout: 5000 })
+  await page.click('.confirmbox .btn.danger')
+  await page.waitForSelector('button:has-text("Entrar com meu e-mail")', { timeout: 8000 })
+
+  await page.evaluate(() => { location.hash = '#/library' })
+  await page.waitForSelector('.topbar h1:has-text("Biblioteca")', { timeout: 8000 })
+  await page.waitForSelector('.list .card', { timeout: 8000 })
+  const deslogado = await page.evaluate(() => ({
+    total: document.querySelectorAll('.list .card').length,
+    travadas: document.querySelectorAll('.list .card.travado').length,
+  }))
+  check('SAIR: nenhuma música é apagada ao sair da conta (' + deslogado.total + ')', deslogado.total === acervoNoGratis.musicas)
+  check('SAIR: os limites do grátis continuam valendo sem conta', deslogado.travadas === acervoNoGratis.musicas - 8)
+  await page.click('button[aria-label="Adicionar música"]')
+  await page.waitForSelector('.sheet h2:has-text("Assinando, isso some")', { timeout: 8000 })
+  check('SAIR: o ＋ para no teto mesmo deslogado, em vez de virar ilimitado', true)
+  await page.click('.sheet button:has-text("Agora não")')
+
+  // e o esquecimento não pode voltar ao recarregar o app
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.tabbar', { timeout: 12000 })
+  await page.evaluate(() => { location.hash = '#/library' })
+  await page.waitForSelector('.list .card', { timeout: 8000 })
+  const depoisDeRecarregar = await page.evaluate(() => document.querySelectorAll('.list .card.travado').length)
+  check('SAIR: recarregar o app não destrava de novo', depoisDeRecarregar === acervoNoGratis.musicas - 8)
+
   await page.unroute('**/functions/v1/pagamento*')
   await page.unroute('**/functions/v1/licenca*')
   await page.unroute('**/auth/v1/**')
